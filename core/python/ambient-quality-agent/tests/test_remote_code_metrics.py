@@ -44,7 +44,12 @@ from ambient_quality_agent.tools.metrics.library import (
 )
 from google.genai import types as gt
 
-from .conftest import make_agent_case, make_page
+from .conftest import (
+    TRAJECTORY_FILE_URI,
+    build_trajectory_file_case,
+    make_agent_case,
+    make_page,
+)
 
 _SOURCE = "EXPECTED = 'The agent answers.'\n\ndef evaluate(instance):\n    return 1.0\n"
 
@@ -834,6 +839,40 @@ def test_the_service_receives_the_prompt_the_local_runner_derives() -> None:
     )
     assert sent.prompt.parts[0].text == "Rome?"
     assert runner.build_instance(case)["prompt"]["parts"][0]["text"] == "Rome?"
+
+
+def test_the_service_receives_an_image_only_prompt_as_placeholder_text() -> (
+    None
+):
+    """Metrics get placeholder text for a stored file, so a user message that
+    holds only one is still a message, as in `runner.build_instance`."""
+    case = build_trajectory_file_case(("user", None), ("agent", "A cat."))
+    page = make_page([case])
+
+    sent = remote.build_request_dataset(page.dataset).eval_cases[0]
+
+    assert sent.prompt is not None
+    assert sent.prompt.parts[0].text == "<attachment: image/png>"
+    assert sent.responses[0].response.parts[0].text == "A cat."
+    first = sent.agent_data.turns[0].events[0].content.parts[0]
+    assert first.text == "<attachment: image/png>"
+    kept = page.dataset.eval_cases[0].agent_data.turns[0].events[0]
+    assert kept.content.parts[0].file_data.file_uri == TRAJECTORY_FILE_URI, (
+        "the page's case keeps its link"
+    )
+
+
+def test_the_service_judges_an_unanswered_image_only_message_as_silence() -> (
+    None
+):
+    case = build_trajectory_file_case(
+        ("user", "Hi"), ("agent", "Hello!"), ("user", None)
+    )
+
+    sent = remote.build_request_dataset(make_page([case]).dataset).eval_cases[0]
+
+    assert sent.prompt is None
+    assert sent.responses[0].response.parts[0].text == ""
 
 
 def test_a_case_that_already_carries_a_response_still_gets_its_prompt() -> None:

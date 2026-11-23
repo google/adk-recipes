@@ -20,7 +20,7 @@
 #     gh api repos/google/adk-recipes/codeowners/errors
 
 # Catch-all: docs, root configs, anything not matched below
-* @tommywagz
+* @tommywagz @rohityan
 
 # Repository governance (CI, policy, this file) stays with the repo admin.
 /.github/**            @happyhuman

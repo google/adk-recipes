@@ -84,6 +84,21 @@ esac
 [[ -x "$PY" ]] || { echo "ERROR: repo venv not found at $PY (create it first)." >&2; exit 1; }
 [[ -d "$UI_DIR" ]] || { echo "ERROR: UI not found at $UI_DIR" >&2; exit 1; }
 
+# Verify lockfiles offline and scan locked dependencies with osv-scanner before
+# starting a local server. `mock_ui.sh` runs offline-only checks against synthetic data,
+# `make standalone` sets AQA_SECURITY_CHECKED=1 after running the check once,
+# and exported trees without `tools_internal/` fall back to `uv lock --check`.
+if [[ -f "$REPO_ROOT/tools_internal/security/check_security.py" ]]; then
+  if [[ "$ADK_APP" == "mock_aqa" ]]; then
+    ( cd "$REPO_ROOT" && "$PY" tools_internal/security/check_security.py --offline-only ) || exit 1
+  elif [[ "${AQA_SECURITY_CHECKED:-}" != "1" ]]; then
+    ( cd "$REPO_ROOT" && "$PY" tools_internal/security/check_security.py --respect-skip-env ) || exit 1
+  fi
+else
+  ( cd "$REPO_ROOT" && uv lock --check --offline >/dev/null && uv lock --directory ui --check --offline >/dev/null ) \
+    || { echo "ERROR: uv.lock is missing or out of sync with pyproject.toml." >&2; exit 1; }
+fi
+
 if [[ -n "$STANDALONE" && ( -n "$ENGINE_RESOURCE" || -n "$ENGINE_URL" ) ]]; then
   echo "ERROR: AQA_STANDALONE=1 runs the agent here; unset AGENT_ENGINE_RESOURCE_ID and AGENT_ENGINE_URL." >&2
   exit 1
@@ -138,8 +153,8 @@ else
   done
   # Checks the configuration first, so a missing or invalid setting is reported
   # in one line.
-  ( cd "$REPO_ROOT" && uv run python tools/check_config.py ) || exit 1
-  ( cd "$REPO_ROOT" && exec uv run uvicorn ambient_quality_agent.fast_api_app:app \
+  ( cd "$REPO_ROOT" && uv run --locked python tools/check_config.py ) || exit 1
+  ( cd "$REPO_ROOT" && exec uv run --locked uvicorn ambient_quality_agent.fast_api_app:app \
       ${ENV_FILE_ARGS[@]+"${ENV_FILE_ARGS[@]}"} --host 127.0.0.1 --port "$ADK_PORT" ) &
   AGENT_PID=$!
   echo -n "waiting for agent server"

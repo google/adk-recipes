@@ -34,6 +34,9 @@ from ambient_quality_agent.tools.evaluation.results import (
     build_outcome_keys,
     list_failed_rubric_verdicts,
 )
+from ambient_quality_agent.tools.ingestion.trajectory_files import (
+    build_case_without_trajectory_files,
+)
 from ambient_quality_agent.tools.insights.findings import (
     Finding,
     FindingSet,
@@ -101,7 +104,9 @@ def build_instance(eval_case: Any) -> dict[str, Any]:
 
     Fetchers construct cases from `agent_data` without populating `responses`
     or `prompt`. Both are derived from the turns so metrics receive what was
-    actually said.
+    actually said. Metrics get placeholder text for trajectory files (see
+    `trajectory_files.build_case_without_trajectory_files`), so a message that
+    holds only a stored file still counts as said.
 
     Args:
         eval_case: Evaluation case containing turn events and scenario data.
@@ -110,6 +115,7 @@ def build_instance(eval_case: Any) -> dict[str, Any]:
         Dictionary representation of the case populated with extracted response
         and prompt fields.
     """
+    eval_case = build_case_without_trajectory_files(eval_case)
     instance = eval_case.model_dump(
         exclude={"responses"}, mode="json", exclude_none=True
     )

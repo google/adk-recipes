@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import hashlib
 import json
 import logging
 import re
@@ -25,10 +26,7 @@ from typing import Any
 from unittest import mock
 
 import pytest
-from ambient_quality_agent.tools.agent_revision import (
-    UNRECORDED_PARAMETERS,
-    AgentRevisionCache,
-)
+from ambient_quality_agent.tools.agent_revision import AgentRevisionCache
 from ambient_quality_agent.tools.evaluation.models import MetricType
 from ambient_quality_agent.tools.ingestion.base import (
     AGENT_COUNT_LIMIT,
@@ -41,16 +39,20 @@ from ambient_quality_agent.tools.ingestion.base import (
 from ambient_quality_agent.tools.ingestion.bigquery_fetcher import (
     BigQueryFetcher,
 )
-from ambient_quality_agent.tools.insights.findings import (
-    extract_trajectory_turns,
+from ambient_quality_agent.tools.review.agentic_reviewer.prompts import (
+    build_review_prompt,
 )
-from ambient_quality_agent.tools.review import session_review
+from ambient_quality_agent.tools.review.agentic_reviewer.trajectory_json import (
+    build_trajectory_json,
+    has_recorded_schemas,
+)
 from ambient_quality_agent.tools.telemetry.schema import load_required_schema
 from ambient_quality_agent.tools.trajectories.models import IngestStatus
 from google.api_core import exceptions as api_exceptions
 from google.cloud import bigquery
+from google.genai.types import Blob, Part
 
-from .conftest import FakeTrajectoryRecorder
+from .conftest import FakeTrajectoryRecorder, build_trajectory_file_store
 
 _PROJECT = "test-project"
 _DATASET = "agent_analytics"
@@ -190,7 +192,10 @@ def _single_turn_row() -> dict[str, Any]:
 
 
 def _make_fetcher(
-    client: mock.MagicMock, recorder: Any | None = None, selector_sql: str = ""
+    client: mock.MagicMock,
+    recorder: Any | None = None,
+    selector_sql: str = "",
+    trajectory_file_store: Any | None = None,
 ) -> BigQueryFetcher:
     with mock.patch(
         "ambient_quality_agent.tools.ingestion.base.bigquery.Client",
@@ -202,6 +207,7 @@ def _make_fetcher(
             table=_TABLE,
             location=_LOCATION,
             recorder=recorder,
+            trajectory_file_store=trajectory_file_store,
             selector_sql=selector_sql,
         )
 
@@ -709,7 +715,7 @@ def test_a_runtime_error_becomes_an_error_response(
         _build_error_event(event_type, "booking-agent", "503 UNAVAILABLE.")
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     [event] = _list_function_responses(case)
     assert event.content.parts[0].function_response.name == name
@@ -731,7 +737,7 @@ def test_an_llm_error_without_a_message_reports_error(
         _build_error_event("LLM_ERROR", "root-agent", error_message)
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     [event] = _list_function_responses(case)
     assert event.content.parts[0].function_response.response == {
@@ -751,7 +757,7 @@ def test_an_agent_error_without_a_message_reports_the_last_traceback_line(
         )
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     [event] = _list_function_responses(case)
     assert event.content.parts[0].function_response.response == {
@@ -768,7 +774,7 @@ def test_a_tool_error_without_a_message_reports_error() -> None:
         )
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     [event] = _list_function_responses(case)
     assert event.content.parts[0].function_response.name == "book_table"
@@ -798,7 +804,7 @@ def test_a_propagated_error_is_shown_once(
         _build_error_event("INVOCATION_ERROR", "root-agent", message),
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     [event] = _list_function_responses(case)
     assert event.content.parts[0].function_response.name == name
@@ -818,7 +824,7 @@ def test_a_propagated_error_is_shown_once_in_a_single_turn_case() -> None:
     for event in events:
         del event["invocation_id"]
 
-    case = fetcher._build_case(
+    case = fetcher.build_case(
         {"invocation_id": "inv-1", "events": events}, MetricType.SINGLE_TURN
     )
 
@@ -841,7 +847,7 @@ def test_a_propagated_error_is_tracked_per_invocation() -> None:
         _build_error_event("AGENT_ERROR", "root-agent", message),
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     assert [
         event.content.parts[0].function_response.name
@@ -862,7 +868,7 @@ def test_a_new_error_after_a_handled_one_is_kept() -> None:
         _build_error_event("AGENT_ERROR", "root-agent", message),
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     assert [
         event.content.parts[0].function_response.name
@@ -877,7 +883,7 @@ def test_an_error_with_a_different_message_is_kept() -> None:
         _build_error_event("AGENT_ERROR", "root-agent", "Callback failed."),
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     assert [
         event.content.parts[0].function_response.response
@@ -973,7 +979,7 @@ def test_a_session_cut_short_by_a_model_error_ends_with_the_error(
     the agent for an answer it never gave."""
     fetcher = _make_fetcher(mock.MagicMock())
 
-    case = fetcher._build_case(row, metric_type)
+    case = fetcher.build_case(row, metric_type)
 
     last = case.agent_data.turns[-1].events[-1]
     assert last.author == "tracking-agent"
@@ -993,7 +999,7 @@ def test_agent_starting_is_not_a_turn_event() -> None:
     reviewer as an empty message."""
     fetcher = _make_fetcher(mock.MagicMock())
 
-    turns = fetcher._build_case(
+    turns = fetcher.build_case(
         _multi_agent_row(), MetricType.MULTI_TURN
     ).agent_data.turns
 
@@ -1053,7 +1059,7 @@ def test_an_agent_reply_drops_the_plugin_formatting(
         }
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     reply = case.agent_data.turns[0].events[-1]
     assert reply.content.parts[0].text == text
@@ -1395,7 +1401,7 @@ def test_instruction_prefers_the_resolved_system_prompt() -> None:
         ),
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     assert (
         case.agent_data.agents["weather-agent"].instruction
@@ -1407,7 +1413,7 @@ def test_instruction_falls_back_to_agent_starting() -> None:
     """A session without an LLM_REQUEST falls back to the AGENT_STARTING instruction."""
     fetcher = _make_fetcher(mock.MagicMock())
 
-    case = fetcher._build_case(_multi_turn_row(), MetricType.MULTI_TURN)
+    case = fetcher.build_case(_multi_turn_row(), MetricType.MULTI_TURN)
 
     assert (
         case.agent_data.agents["weather-agent"].instruction
@@ -1421,13 +1427,13 @@ def test_llm_request_is_not_itself_a_turn_event() -> None:
     fetcher = _make_fetcher(mock.MagicMock())
     row = _multi_turn_row()
     before = len(
-        fetcher._build_case(row, MetricType.MULTI_TURN)
+        fetcher.build_case(row, MetricType.MULTI_TURN)
         .agent_data.turns[0]
         .events
     )
     row["events"].insert(1, _llm_request("inv-1", "weather-agent", "Resolved."))
 
-    turns = fetcher._build_case(row, MetricType.MULTI_TURN).agent_data.turns
+    turns = fetcher.build_case(row, MetricType.MULTI_TURN).agent_data.turns
 
     assert len(turns[0].events) == before
 
@@ -1456,7 +1462,7 @@ def test_changed_instruction_is_recorded_as_a_state_delta() -> None:
         }
     )
 
-    turns = fetcher._build_case(row, MetricType.MULTI_TURN).agent_data.turns
+    turns = fetcher.build_case(row, MetricType.MULTI_TURN).agent_data.turns
 
     assert turns[0].events[0].state_delta is None
     assert turns[1].events[-2].state_delta == {
@@ -1466,7 +1472,7 @@ def test_changed_instruction_is_recorded_as_a_state_delta() -> None:
 
 
 def test_instruction_equal_to_baseline_carries_no_state_delta() -> None:
-    """The review prompt already shows the baseline in the agent block, so an
+    """The reviewer already sees the baseline as the agent's instruction, so an
     instruction that never moved off it is not repeated on any event."""
     fetcher = _make_fetcher(mock.MagicMock())
     row = _multi_turn_row()
@@ -1481,7 +1487,7 @@ def test_instruction_equal_to_baseline_carries_no_state_delta() -> None:
         }
     )
 
-    turns = fetcher._build_case(row, MetricType.MULTI_TURN).agent_data.turns
+    turns = fetcher.build_case(row, MetricType.MULTI_TURN).agent_data.turns
 
     assert turns[1].events[-1].state_delta is None
 
@@ -1526,8 +1532,8 @@ def _list_tool_names(tools: list[Any] | None) -> list[str | None] | None:
 
 
 def test_tools_logged_by_name_reach_the_agent_config() -> None:
-    """Without them the review prompt tells the judge the agent had no tools,
-    and every call it made reads as a call to a tool it was not given."""
+    """Without them the reviewer sees an agent with no tools, and every call
+    it made reads as a call to a tool it was not given."""
     fetcher = _make_fetcher(mock.MagicMock())
     row = _multi_turn_row()
     row["events"].insert(
@@ -1537,7 +1543,7 @@ def test_tools_logged_by_name_reach_the_agent_config() -> None:
         ),
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     tools = case.agent_data.agents["weather-agent"].tools
     assert _list_tool_names(tools) == ["get_weather", "get_rain"]
@@ -1565,7 +1571,7 @@ def test_tools_logged_as_declarations_keep_their_schema() -> None:
         ),
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     declarations = (
         case.agent_data.agents["weather-agent"].tools[0].function_declarations
@@ -1593,7 +1599,7 @@ def test_tools_logged_as_json_text_are_decoded() -> None:
         ),
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     assert _list_tool_names(case.agent_data.agents["weather-agent"].tools) == [
         "get_weather",
@@ -1622,7 +1628,7 @@ def test_unusable_tools_yield_no_toolset(tools: Any) -> None:
         1, _llm_request("inv-1", "weather-agent", "Resolved.", tools)
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     assert case.agent_data.agents["weather-agent"].tools is None
     assert all(
@@ -1676,7 +1682,7 @@ def test_a_toolset_the_plugin_cut_short_is_not_used(tools: list[Any]) -> None:
         _build_agent_response_event("inv-2", "weather-agent", "Noon.")
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     assert _list_tool_names(case.agent_data.agents["weather-agent"].tools) == [
         "get_weather",
@@ -1702,7 +1708,7 @@ def test_a_placeholder_for_one_tool_is_not_read_as_a_tool_name() -> None:
         ),
     )
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     assert _list_tool_names(case.agent_data.agents["weather-agent"].tools) == [
         "get_weather"
@@ -1713,7 +1719,7 @@ def test_an_agent_without_logged_tools_has_none() -> None:
     """None, as on the Cloud Trace path: the telemetry did not say."""
     fetcher = _make_fetcher(mock.MagicMock())
 
-    case = fetcher._build_case(_multi_turn_row(), MetricType.MULTI_TURN)
+    case = fetcher.build_case(_multi_turn_row(), MetricType.MULTI_TURN)
 
     assert case.agent_data.agents["weather-agent"].tools is None
 
@@ -1736,7 +1742,7 @@ def test_each_agent_keeps_the_tools_of_its_own_first_request() -> None:
         ),
     ]
 
-    agents = fetcher._build_case(row, MetricType.MULTI_TURN).agent_data.agents
+    agents = fetcher.build_case(row, MetricType.MULTI_TURN).agent_data.agents
 
     assert _list_tool_names(agents["root-agent"].tools) == ["transfer_to_agent"]
     assert _list_tool_names(agents["flights-subagent"].tools) == [
@@ -1775,7 +1781,7 @@ def test_changed_tools_ride_on_the_later_events_of_that_agent_only() -> None:
         ],
     }
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
 
     assert (
         _list_tool_names(case.agent_data.agents["worker-agent"].tools)
@@ -1820,7 +1826,7 @@ def test_tools_equivalent_to_the_baseline_carry_no_active_tools(
         _build_agent_response_event("inv-2", "weather-agent", "Briefly.")
     )
 
-    turns = fetcher._build_case(row, MetricType.MULTI_TURN).agent_data.turns
+    turns = fetcher.build_case(row, MetricType.MULTI_TURN).agent_data.turns
 
     assert all(
         event.active_tools is None for turn in turns for event in turn.events
@@ -1841,7 +1847,7 @@ def test_a_request_without_tools_keeps_the_changed_toolset_in_force() -> None:
         _build_agent_response_event("inv-2", "weather-agent", "Dry.")
     )
 
-    turns = fetcher._build_case(row, MetricType.MULTI_TURN).agent_data.turns
+    turns = fetcher.build_case(row, MetricType.MULTI_TURN).agent_data.turns
 
     assert _list_tool_names(turns[1].events[-1].active_tools) == ["get_rain"]
 
@@ -1859,7 +1865,7 @@ def test_a_single_turn_case_gets_its_tools() -> None:
         },
     )
 
-    case = fetcher._build_case(row, MetricType.SINGLE_TURN)
+    case = fetcher.build_case(row, MetricType.SINGLE_TURN)
 
     assert _list_tool_names(case.agent_data.agents["weather-agent"].tools) == [
         "get_rain"
@@ -1871,7 +1877,7 @@ def test_a_single_turn_case_gets_its_tools() -> None:
 )
 def test_both_queries_project_the_logged_tools(metric_type: MetricType) -> None:
     """Nothing else notices the tools going missing from the projection: every
-    agent block would just read as having none."""
+    agent would just reach the reviewer with no tools."""
     client = mock.MagicMock()
     client.query.return_value.job_id = "job-1"
     fetcher = _make_fetcher(client)
@@ -1949,7 +1955,7 @@ def test_a_sub_agent_reply_pairs_with_the_sub_agents_configuration() -> None:
     that the root answered instead of transferring."""
     fetcher = _make_fetcher(mock.MagicMock())
 
-    case = fetcher._build_case(
+    case = fetcher.build_case(
         _build_transferred_session_row(), MetricType.MULTI_TURN
     )
 
@@ -1964,12 +1970,12 @@ def test_a_sub_agent_reply_pairs_with_the_sub_agents_configuration() -> None:
     ]
 
 
-def test_a_three_agent_session_with_named_tools_reaches_the_review_prompt() -> (
-    None
-):
-    """Verify end-to-end rendering from analytics row to review prompt: each
-    agent block lists its tools with the unknown-parameters marker for
-    name-only tools."""
+def test_a_three_agent_session_with_named_tools_reaches_the_reviewer() -> None:
+    """Verify end-to-end rendering from analytics row to the reviewer's
+    trajectory JSON: each agent lists exactly its own tools, by bare name
+    because telemetry recorded neither parameters nor a description. With no
+    recorded schema the reviewer gets the unrecorded-schemas rule, so it does
+    not read these tools as taking no arguments."""
     fetcher = _make_fetcher(mock.MagicMock())
     row = {
         "session_id": "sess-4",
@@ -2005,30 +2011,20 @@ def test_a_three_agent_session_with_named_tools_reaches_the_review_prompt() -> (
         ],
     }
 
-    case = fetcher._build_case(row, MetricType.MULTI_TURN)
-    prompt = session_review.build_prompt(
-        AgentRevisionCache().build_revisions(case),
-        extract_trajectory_turns(case),
+    case = fetcher.build_case(row, MetricType.MULTI_TURN)
+    trajectory = build_trajectory_json(
+        case, AgentRevisionCache().build_revisions(case)
     )
 
-    assert "Tools it could call: []" not in prompt
-    assert '"parameters": []' not in prompt
-    blocks = {
-        block.split("\n", 1)[0]: block
-        for block in prompt.split("\n  agent: ")[1:]
-    }
-    assert set(blocks) == {"bookings-agent", "concierge-agent", "router-agent"}
+    agents = {agent["agent_id"]: agent for agent in trajectory["agents"]}
+    assert set(agents) == {"bookings-agent", "concierge-agent", "router-agent"}
     for agent, names in {
         "concierge-agent": ["transfer_to_agent"],
         "router-agent": ["transfer_to_agent", "list_workers"],
         "bookings-agent": ["find_booking", "move_booking", "notify_customer"],
     }.items():
-        tools_line = blocks[agent].split("Tools it could call: ", 1)[1]
-        listed = json.loads(tools_line.split("\n", 1)[0])
-        assert [tool["name"] for tool in listed] == names
-        assert all(
-            tool["parameters"] == UNRECORDED_PARAMETERS for tool in listed
-        )
+        assert agents[agent]["tools"] == names
+    assert not has_recorded_schemas(trajectory)
 
 
 _SAMPLE_CONTENT: dict[str, Any] = {
@@ -2074,7 +2070,7 @@ def _list_state_deltas(
     Returns:
         One list per turn holding each event's `state_delta`.
     """
-    case = _make_fetcher(mock.MagicMock())._build_case(row, metric_type)
+    case = _make_fetcher(mock.MagicMock()).build_case(row, metric_type)
     return [
         [event.state_delta for event in turn.events]
         for turn in case.agent_data.turns
@@ -2278,8 +2274,9 @@ def test_single_turn_case_shows_the_changed_instruction_once() -> None:
 
 
 def test_two_phase_case_shows_the_changed_instruction_once() -> None:
-    """A system instruction can be very large, so it reaches the review prompt
-    once per turn, not once per event."""
+    """A system instruction can be very large, so it reaches the reviewer once
+    per turn, not once per event: in full in the trajectory JSON that the
+    reviewer's tools query, and as one stub in the elided initial message."""
     v1 = "Greet the user and collect the request."
     v2 = "Follow the SOP step by step. " * 5000
     events = [
@@ -2304,7 +2301,7 @@ def test_two_phase_case_shows_the_changed_instruction_once() -> None:
     ]
     fetcher = _make_fetcher(mock.MagicMock())
 
-    case = fetcher._build_case(
+    case = fetcher.build_case(
         {"session_id": "sess-1", "events": events}, MetricType.MULTI_TURN
     )
 
@@ -2315,11 +2312,12 @@ def test_two_phase_case_shows_the_changed_instruction_once() -> None:
         if event.state_delta == _build_instruction_delta(v2)
     ]
     assert carriers == [(1, 1)], "only turn 2's first TOOL_STARTING carries v2"
-    prompt = session_review.build_prompt(
-        AgentRevisionCache().build_revisions(case),
-        extract_trajectory_turns(case),
+    prompt = build_review_prompt(
+        case, AgentRevisionCache().build_revisions(case)
     )
-    assert prompt.count(v2) == 1
+    assert json.dumps(prompt.trajectory_json).count(v2) == 1
+    assert prompt.initial_message.count('"system_instruction"') == 1
+    assert v2 not in prompt.initial_message
 
 
 def test_fetch_page_reports_no_deployment_revision() -> None:
@@ -2723,3 +2721,110 @@ def test_any_other_job_error_passes_through_unchanged(site: str) -> None:
         _run_job_site(fetcher, site)
 
     assert raised.value is error
+
+
+# --- trajectory files ---------------------------------------------------------
+
+
+_IMAGE = b"\x89PNG" + bytes(28)
+
+
+def _add_image_to_mapped_rows(
+    fetcher: BigQueryFetcher, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Appends an inline image to the first event of every case `_map_row` maps.
+
+    This source writes no inline bytes itself; the image stands in for one so
+    `_map_page`'s shared step can be checked on this fetcher.
+
+    Args:
+        fetcher: The fetcher whose `_map_row` to wrap.
+        monkeypatch: Pytest monkeypatch fixture.
+    """
+    original = fetcher._map_row
+
+    def map_row_with_image(row: dict[str, Any], metric_type: MetricType):
+        mapped = original(row, metric_type)
+        content = mapped.case.agent_data.turns[0].events[0].content
+        content.parts.append(
+            Part(inline_data=Blob(data=_IMAGE, mime_type="image/png"))
+        )
+        return mapped
+
+    monkeypatch.setattr(fetcher, "_map_row", map_row_with_image)
+
+
+def _extract_image_part(case: Any) -> Any:
+    return case.agent_data.turns[0].events[0].content.parts[-1]
+
+
+def test_map_page_links_trajectory_files_in_the_recorded_and_returned_case(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorder = FakeTrajectoryRecorder()
+    store, objects = build_trajectory_file_store(tmp_path)
+    fetcher = _make_fetcher(
+        mock.MagicMock(), recorder=recorder, trajectory_file_store=store
+    )
+    _add_image_to_mapped_rows(fetcher, monkeypatch)
+
+    cases, _ = fetcher._map_page([_multi_turn_row()], MetricType.MULTI_TURN)
+    fetcher._recorder.flush()
+
+    name = (
+        "aqa-trajectory-files/agent-key/2026-11-10/"
+        + hashlib.sha256(_IMAGE).hexdigest()
+    )
+    for case in (cases[0], recorder.records[0].case):
+        part = _extract_image_part(case)
+        assert part.inline_data is None
+        assert part.file_data.file_uri == objects.uri(name)
+    assert recorder.records[0].ingest_status is IngestStatus.INGESTED
+
+
+def test_map_page_counts_a_failed_trajectory_file_write_as_partial(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorder = FakeTrajectoryRecorder()
+    store, _ = build_trajectory_file_store(tmp_path, fail_writes=True)
+    fetcher = _make_fetcher(
+        mock.MagicMock(), recorder=recorder, trajectory_file_store=store
+    )
+    _add_image_to_mapped_rows(fetcher, monkeypatch)
+
+    cases, _ = fetcher._map_page([_multi_turn_row()], MetricType.MULTI_TURN)
+    fetcher._recorder.flush()
+
+    part = _extract_image_part(cases[0])
+    assert part.text.startswith("<attachment: image/png, 32 bytes, sha256:")
+    assert dataclasses.astuple(fetcher.counts) == (0, 0, 1, 0)
+    assert recorder.records[0].ingest_status is IngestStatus.PARTIAL
+
+
+def test_map_page_without_a_trajectory_file_store_writes_placeholders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fetcher = _make_fetcher(mock.MagicMock())
+    _add_image_to_mapped_rows(fetcher, monkeypatch)
+
+    cases, _ = fetcher._map_page([_multi_turn_row()], MetricType.MULTI_TURN)
+
+    part = _extract_image_part(cases[0])
+    digest = hashlib.sha256(_IMAGE).hexdigest()[:8]
+    assert part.text == f"<attachment: image/png, 32 bytes, sha256:{digest}>"
+    assert dataclasses.astuple(fetcher.counts) == (0, 1, 0, 0)
+
+
+def test_map_page_logs_the_trajectory_file_counts_of_a_page_with_files(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    fetcher = _make_fetcher(mock.MagicMock())
+    _add_image_to_mapped_rows(fetcher, monkeypatch)
+
+    with caplog.at_level(logging.INFO, logger="ambient_quality_agent"):
+        fetcher._map_page([_multi_turn_row()], MetricType.MULTI_TURN)
+
+    assert (
+        "Trajectory files on this page: 0 stored, 1 not stored, 0 failed."
+        in caplog.text
+    )

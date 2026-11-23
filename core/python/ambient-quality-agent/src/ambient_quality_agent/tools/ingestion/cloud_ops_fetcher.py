@@ -74,6 +74,9 @@ from ambient_quality_agent.tools.ingestion.trace_models import (
     SpanEvent,
     SpanStatus,
 )
+from ambient_quality_agent.tools.ingestion.trajectory_files import (
+    TrajectoryFileStore,
+)
 from ambient_quality_agent.tools.trajectories.recorder import (
     NullTrajectoryRecorder,
     TrajectoryRecorder,
@@ -358,6 +361,7 @@ class CloudOpsFetcher(BigQueryJobFetcher):
         gcs_reader: GcsReader | None = None,
         memory_guard: Callable[[], bool] | None = None,
         recorder: TrajectoryRecorder | NullTrajectoryRecorder | None = None,
+        trajectory_file_store: TrajectoryFileStore | None = None,
         selector_sql: str = "",
         selector_ai_model: str = "",
         job_timeout_ms: int = DEFAULT_JOB_TIMEOUT_MS,
@@ -376,6 +380,8 @@ class CloudOpsFetcher(BigQueryJobFetcher):
             gcs_reader: Resolves ``gs://`` message/tool refs.
             memory_guard: Run-shared memory guard (see `BaseFetcher`).
             recorder: Where to report sampled trajectories (see `BaseFetcher`).
+            trajectory_file_store: Store for files attached to sampled
+                conversations (see `BigQueryJobFetcher`).
             selector_sql: Agent-authored query selecting specific sessions to
                 review (see `BigQueryJobFetcher`).
             selector_ai_model: Model endpoint for selector `AI.IF` calls
@@ -391,6 +397,7 @@ class CloudOpsFetcher(BigQueryJobFetcher):
             observed_project_id=observed_project_id,
             memory_guard=memory_guard,
             recorder=recorder,
+            trajectory_file_store=trajectory_file_store,
             selector_sql=selector_sql,
             selector_ai_model=selector_ai_model,
             job_timeout_ms=job_timeout_ms,

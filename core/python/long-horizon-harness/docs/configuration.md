@@ -54,7 +54,7 @@ route exposes — and the credentials the `secrets`/`oauth` routes inject — is
 
 | Var | Default | Notes |
 |---|---|---|
-| `LHA_ROOT_MODEL` | `gemini-3.7-flash` | Root-agent default; a key in `horizon/models/registry.py`. `/model` overrides per-session. |
+| `LHA_ROOT_MODEL` | `gemini-4-carbon` | Root-agent default; a key in `horizon/models/registry.py`. `/model` overrides per-session. |
 | `LHA_VERTEX_SERVICE_TIER` | _(off)_ | Set to `priority` to pin Gemini to Vertex's `SERVICE_TIER_PRIORITY` per turn. **Off by default** — the tier needs a Vertex entitlement most projects lack. |
 
 ### Environment / sandbox

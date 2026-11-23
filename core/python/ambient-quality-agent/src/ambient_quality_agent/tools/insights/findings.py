@@ -98,9 +98,9 @@ class FindingSet(BaseModel):
 def extract_trajectory_turns(eval_case: Any) -> list[dict]:
     """Serialize a trajectory's conversation turns as JSON-safe dictionaries.
 
-    Fills `FindingSet.turns_by_trajectory` and the conversation in the session reviewer's
-    prompt. Serialization is best effort so missing or malformed trace evidence
-    does not fail the sweep.
+    Fills `FindingSet.turns_by_trajectory` and the turns of the session reviewer's
+    trajectory JSON. Serialization is best effort so missing or malformed trace
+    evidence does not fail the sweep.
 
     Args:
         eval_case: Evaluation case containing the conversation turns.

@@ -86,7 +86,7 @@ sys.meta_path.insert(0, _Block())
 from horizon.models import build_root_llm
 
 llm = build_root_llm()
-assert llm.model == "gemini-3.7-flash"
+assert llm.model == "gemini-4-carbon"
 print("BUILD_DEFAULT_OK")
 """
 
@@ -111,6 +111,7 @@ def test_registry_membership_is_key_only():
     assert sorted(MODEL_REGISTRY) == [
         "gemini-3.1-pro-preview",
         "gemini-3.7-flash",
+        "gemini-4-carbon",
     ]
 
 

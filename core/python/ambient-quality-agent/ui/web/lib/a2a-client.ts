@@ -101,6 +101,9 @@ export interface CreateLhaClientOptions {
   /** The agent the conversation is about, read at each send: the agent list
    *  that names the default agent may answer after the client is built. */
   resolveAgentKey?: () => string | undefined;
+  /** The insight the conversation is diagnosing, persisted in user message
+   *  metadata so `/lha/contexts` can associate the thread across browsers. */
+  resolveInsightId?: () => string | undefined;
   /** Aborts the agent-card retry loop (e.g. when the boot effect tears down). */
   signal?: AbortSignal;
 }
@@ -293,14 +296,19 @@ export async function createLhaClient(
     })),
   };
 
-  const { contextId, resolveAgentKey } = opts;
+  const { contextId, resolveAgentKey, resolveInsightId } = opts;
 
   // On the request, where the agent reads it (ADK hands request metadata to
   // the chat agent's `before_agent`), and on the message, which is what the
-  // transcript keeps and the conversation list reads the agent from.
+  // transcript keeps and `/lha/contexts` reads `agent_key` and `insight_id` from.
   function buildAgentMetadata(): Record<string, unknown> | undefined {
-    const agentKey = resolveAgentKey?.();
-    return agentKey ? { agent_key: agentKey } : undefined;
+    const agentKey = resolveAgentKey?.()?.trim();
+    const insightId = resolveInsightId?.()?.trim();
+    if (!agentKey && !insightId) return undefined;
+    return {
+      ...(agentKey ? { agent_key: agentKey } : {}),
+      ...(insightId ? { insight_id: insightId } : {}),
+    };
   }
 
   // `legacyCompat` is deliberately omitted: it defaults to disabled, which

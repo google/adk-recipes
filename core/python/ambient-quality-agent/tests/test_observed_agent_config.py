@@ -54,6 +54,7 @@ AQA_OWNED_FIELDS = frozenset(
         "sync_investigation",
         "standalone",
         "pending_investigation_lease_minutes",
+        "store_trajectory_files",
     }
 )
 """The `Config` fields one AQuA deployment owns, whatever it is watching.

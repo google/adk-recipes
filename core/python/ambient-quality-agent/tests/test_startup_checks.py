@@ -144,6 +144,26 @@ def test_insight_tables_with_their_deployed_columns_report_nothing_missing() -> 
     assert _insight_store(deployed).list_missing_columns() == {
         "insights": [],
         "insight_occurrences": [],
+        "insight_root_causes": [],
+    }
+
+
+def test_root_causes_table_missing_context_id_is_reported() -> None:
+    """A pre-existing `insight_root_causes` table lacking `context_id` is flagged."""
+
+    def without_context_id(ref: str, **_k: Any) -> Any:
+        table_id = ref.rsplit(".", 1)[-1]
+        cols = [
+            c
+            for c in _terraform_columns(table_id)
+            if not (table_id == "insight_root_causes" and c == "context_id")
+        ]
+        return _table_with(cols)
+
+    assert _insight_store(without_context_id).list_missing_columns() == {
+        "insights": [],
+        "insight_occurrences": [],
+        "insight_root_causes": ["context_id"],
     }
 
 

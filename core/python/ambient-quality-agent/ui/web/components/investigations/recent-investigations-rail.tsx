@@ -23,6 +23,8 @@ import {
 import { count } from "@/lib/funnel";
 import {
   ABSENT,
+  describeProgress,
+  extractCurrentProgress,
   isAmbient,
   isPastDue,
   formatInvestigationStateWord,
@@ -45,6 +47,7 @@ import {
   useRailScroll,
 } from "@/components/chat/use-rail-scroll";
 import { useAgentKey } from "@/lib/agent-selection";
+import { ProgressBar } from "./investigation-progress";
 import { TriggerBadge } from "./trigger-badge";
 
 /** The last ten investigations, newest first, as a sidebar section.
@@ -140,6 +143,32 @@ function startedAt(investigation: InvestigationListItem): number {
  *  "failed", "stalled" and "no data" are different from a low pass rate, so
  *  they are named rather than drawn. */
 function Outcome({ investigation }: { investigation: InvestigationListItem }) {
+  // While it is going, a sweep's bar and the word "Running" in the slot the
+  // pass rate takes once it finishes: a fraction there would read as one. The
+  // stage and its counts are the tooltip, and the words a screen reader reads
+  // in place of the bar, which inside the row's link would add its bare value
+  // to the link's name.
+  const progress = extractCurrentProgress(investigation);
+  if (progress) {
+    const counts = describeProgress(progress);
+    const detail = counts ? `${progress.stage}: ${counts}` : progress.stage;
+    return (
+      <>
+        <span aria-hidden="true" className="flex shrink-0">
+          <ProgressBar progress={progress} className="h-1 w-7 rounded-sm" />
+        </span>
+        <span
+          title={detail}
+          className={cn(
+            SIDEBAR_META_CLASS,
+            "min-w-[3.25rem] shrink-0 text-right",
+          )}
+        >
+          Running<span className="sr-only">, {detail}</span>
+        </span>
+      </>
+    );
+  }
   const state = formatInvestigationStateWord(investigation);
   if (state) {
     // The rail's slot is a badge, and a badge says "no data" for an

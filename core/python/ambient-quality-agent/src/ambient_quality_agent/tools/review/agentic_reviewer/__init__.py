@@ -15,12 +15,14 @@
 """Session reviewer that inspects one session per run using an ADK agent and tools.
 
 The initial message embeds the elided trajectory JSON (`elided_trajectory`).
-The `query_trajectory` jq tool (`tools.jq`) queries the full trajectory
-(`trajectory_json`). Gemini models run at `agent.THINKING_LEVEL` and Claude models
-(`agent.CLAUDE_MODEL_PREFIX`) run with adaptive thinking at `agent.CLAUDE_EFFORT`
-and prompt caching, both returning thought summaries. The instruction asks for
+The tools of the toolset that `prompts.REVIEW_TOOLSET` selects (`toolsets`)
+read the full trajectory (`trajectory_json`): by default the `grep` and `read`
+tools (`tools.grep_read`), or the `query_trajectory` jq tool (`tools.jq`).
+Gemini models run at `agent.THINKING_LEVEL` and Claude
+models (`agent.CLAUDE_MODEL_PREFIX`) run with adaptive thinking at
+`agent.CLAUDE_EFFORT` and prompt caching, both returning thought summaries. The instruction asks for
 ``{"findings": [...], "dismissed": [...]}`` when the argon rules apply
-(`prompts.ARGON_RULES`, enabled by default for Gemini only), or for
+(`prompts.ARGON_RULES`, enabled by default for argon models only), or for
 ``{"findings": [...]}`` otherwise. `final_answer` reads only ``findings``
 from the first reply without a function call.
 
@@ -37,24 +39,30 @@ Wiring::
         │   ──► prompts.resolve_system_instruction()
         │   ──► prompts.render_goal_section()
         │   ──► elided_trajectory.render_elided_trajectory()
-        │ tools.jq.JqQueryTool()
+        │ toolsets.build_review_tools()
+        │   ──► tools.grep_read.GrepTool(), tools.grep_read.ReadTool()
+        │   or  tools.jq.JqQueryTool()
         │ agent.ReviewLoopController()
         │ agent.build_reviewer_agent()
         │   ──► agent.create_client() (Gemini, no client injected)
-        │   ──► LlmAgent(Gemini or agent._ReviewClaude, JqQueryTool,
-        │         agent.ReviewLoopController callbacks)
+        │   ──► LlmAgent(agent._ReviewGemini or agent._ReviewClaude, the
+        │         review tools, agent.ReviewLoopController callbacks)
         ▼
     reviewer._run_review()
         ──► reviewer._request_final_reply() ──► Runner.run_async()
         ├─► ReviewLoopController.before_model_callback()
         │     system instruction, pruning, forced final answer
-        ├─► Gemini ──► client.aio.models.generate_content()
+        ├─► _ReviewGemini ──► client.aio.models.generate_content()
         │   or _ReviewClaude ──► AsyncAnthropicVertex.messages.create()
+        │     (both via agent._call_model_with_timeout_retry())
         ├─► ReviewLoopController.before_tool_callback()  undeclared tool names
-        └─► JqQueryTool.run_async() (calls of one reply run concurrently)
-              ──► JqQueryTool.query_trajectory() (worker thread)
-                    ──► jq.run_jq() ──► _jq_worker.py (child process)
-                    ──► jq.render_truncation_note()
+        └─► the review tools (calls of one reply run concurrently)
+              GrepTool.run_async(), ReadTool.run_async()
+                ──► GrepTool.grep(), ReadTool.read() (worker thread)
+              or JqQueryTool.run_async()
+                ──► JqQueryTool.query_trajectory() (worker thread)
+                      ──► jq.run_jq() ──► _jq_worker.py (child process)
+                      ──► jq.render_truncation_note()
         │ final reply ──► final_answer.extract_reply_text()
         ▼
     final_answer.parse_final_text()

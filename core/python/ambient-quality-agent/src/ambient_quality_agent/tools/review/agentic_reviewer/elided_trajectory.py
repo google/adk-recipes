@@ -23,7 +23,9 @@ Wiring::
 
     render_elided_trajectory() ──► _TrajectoryElider.elide_agent(),
                                    elide_event(), elide_other()
-                                     ──► _build_stub()
+                                     ──► _TrajectoryElider._build_stub()
+                                           ──► grep_read.split_text_lines()
+                                               (line counts only)
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ import json
 import os
 from typing import TYPE_CHECKING, Any
 
+from ambient_quality_agent.tools.review.agentic_reviewer.tools import grep_read
 from ambient_quality_agent.tools.review.agentic_reviewer.trajectory_json import (
     has_tool_schema,
 )
@@ -65,7 +68,9 @@ SAME_AS_MIN_CHARS = 100
 pointer; shorter strings are repeated inline because a pointer saves little."""
 
 
-def render_elided_trajectory(trajectory_json: dict[str, Any]) -> str:
+def render_elided_trajectory(
+    trajectory_json: dict[str, Any], *, count_string_lines: bool = False
+) -> str:
     """Render `trajectory_json` as valid JSON with one agent and one event per line.
 
     Large values are replaced with stubs (see `_TrajectoryElider`).
@@ -73,11 +78,15 @@ def render_elided_trajectory(trajectory_json: dict[str, Any]) -> str:
     Args:
         trajectory_json: Trajectory JSON built by
             `trajectory_json.build_trajectory_json`.
+        count_string_lines: Whether a string stub also gives the number of
+            lines that the `read` tool shows for the string.
 
     Returns:
         Formatted JSON string without a trailing newline.
     """
-    elider = _TrajectoryElider(trajectory_json)
+    elider = _TrajectoryElider(
+        trajectory_json, count_string_lines=count_string_lines
+    )
     agents = [
         json.dumps(elider.elide_agent(agent), ensure_ascii=False)
         for agent in trajectory_json.get("agents") or []
@@ -104,42 +113,20 @@ def render_elided_trajectory(trajectory_json: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _build_stub(value: Any) -> dict[str, Any]:
-    """Build an ``$elided`` stub summarizing a value's type and size.
-
-    Args:
-        value: Elided value.
-
-    Returns:
-        ``{"$elided": "string, N chars"}``,
-        ``{"$elided": "object, N chars", "keys": [...]}``,
-        ``{"$elided": "array, K items, N chars"}``, or
-        ``{"$elided": "<type>, N chars"}``, where ``N`` is the string length or
-        compact-JSON character length.
-    """
-    if isinstance(value, str):
-        return {"$elided": f"string, {len(value)} chars"}
-    size = len(_format_compact_json(value))
-    if isinstance(value, dict):
-        return {
-            "$elided": f"object, {size} chars",
-            "keys": list(value)[:STUB_KEYS],
-        }
-    if isinstance(value, list):
-        return {"$elided": f"array, {len(value)} items, {size} chars"}
-    return {"$elided": f"{type(value).__name__}, {size} chars"}
-
-
 class _TrajectoryElider:
     """Elides large values in a trajectory JSON and deduplicates repeated texts."""
 
-    def __init__(self, trajectory_json: dict[str, Any]) -> None:
+    def __init__(
+        self, trajectory_json: dict[str, Any], *, count_string_lines: bool
+    ) -> None:
         """Initialize the elider for `trajectory_json`.
 
         Args:
             trajectory_json: Trajectory JSON built by
                 `trajectory_json.build_trajectory_json`.
+            count_string_lines: Whether string stubs give `read` line counts.
         """
+        self._count_string_lines = count_string_lines
         self._block_instructions = {
             str(agent.get("agent_id") or ""): str(
                 agent.get("instruction") or ""
@@ -148,6 +135,35 @@ class _TrajectoryElider:
         }
         # First event ID of each seen text, tracked separately for user and agent authors.
         self._seen_texts: dict[bool, dict[str, str]] = {False: {}, True: {}}
+
+    def _build_stub(self, value: Any) -> dict[str, Any]:
+        """Build an ``$elided`` stub summarizing a value's type and size.
+
+        Args:
+            value: Elided value.
+
+        Returns:
+            ``{"$elided": "string, N chars"}`` (``"string, N chars, M lines"``
+            when the elider counts string lines),
+            ``{"$elided": "object, N chars", "keys": [...]}``,
+            ``{"$elided": "array, K items, N chars"}``, or
+            ``{"$elided": "<type>, N chars"}``, where ``N`` is the string
+            length or compact-JSON character length.
+        """
+        if isinstance(value, str):
+            if self._count_string_lines:
+                lines = len(grep_read.split_text_lines(value))
+                return {"$elided": f"string, {len(value)} chars, {lines} lines"}
+            return {"$elided": f"string, {len(value)} chars"}
+        size = len(_format_compact_json(value))
+        if isinstance(value, dict):
+            return {
+                "$elided": f"object, {size} chars",
+                "keys": list(value)[:STUB_KEYS],
+            }
+        if isinstance(value, list):
+            return {"$elided": f"array, {len(value)} items, {size} chars"}
+        return {"$elided": f"{type(value).__name__}, {size} chars"}
 
     def elide_agent(self, agent: dict[str, Any]) -> dict[str, Any]:
         """Elide an agent entry.
@@ -169,7 +185,7 @@ class _TrajectoryElider:
             if key == "agent_id":
                 elided[key] = value
             elif key == "instruction":
-                elided[key] = _build_stub(value) if is_long else value
+                elided[key] = self._build_stub(value) if is_long else value
             elif key == "instruction_outline":
                 if is_long:
                     elided[key] = value
@@ -289,12 +305,12 @@ class _TrajectoryElider:
                     elided[key] = (
                         value
                         if len(value) <= INLINE_THOUGHT_CHARS
-                        else _build_stub(value)
+                        else self._build_stub(value)
                     )
                 elif repeat_of is not None:
                     elided[key] = {"$same_as": repeat_of}
                 elif "text_json" in part:
-                    elided[key] = _build_stub(value)
+                    elided[key] = self._build_stub(value)
                 else:
                     elided[key] = value
             elif key == "text_json":
@@ -304,7 +320,7 @@ class _TrajectoryElider:
                 elided[key] = value
             elif key == "thought_signature":
                 # Opaque model API token; carries no session evidence.
-                elided[key] = _build_stub(value)
+                elided[key] = self._build_stub(value)
             elif key == "function_call" and isinstance(value, dict):
                 elided[key] = self._elide_call(value)
             elif key == "function_response" and isinstance(value, dict):
@@ -333,7 +349,7 @@ class _TrajectoryElider:
         size = len(_format_compact_json(response))
         if size <= INLINE_RESULT_CHARS:
             return response
-        return _build_stub(response)
+        return self._build_stub(response)
 
     def _elide_call(self, call: dict[str, Any]) -> dict[str, Any]:
         """Elide a function call dict.
@@ -350,7 +366,9 @@ class _TrajectoryElider:
             if key == "args":
                 size = len(_format_compact_json(value))
                 elided[key] = (
-                    value if size <= INLINE_ARGS_CHARS else _build_stub(value)
+                    value
+                    if size <= INLINE_ARGS_CHARS
+                    else self._build_stub(value)
                 )
             else:
                 elided[key] = self.elide_other(value)
@@ -374,7 +392,7 @@ class _TrajectoryElider:
         for key, value in state_delta.items():
             if key == "system_instruction" and isinstance(value, str):
                 elided[key] = {
-                    **_build_stub(value),
+                    **self._build_stub(value),
                     "prefix_shared_with_block_instruction": len(
                         os.path.commonprefix(
                             [self._block_instructions.get(author, ""), value]
@@ -397,7 +415,7 @@ class _TrajectoryElider:
         """
         if len(_format_compact_json(value)) <= INLINE_OTHER_CHARS:
             return value
-        return _build_stub(value)
+        return self._build_stub(value)
 
 
 def _order_keys(mapping: dict[str, Any], first: str) -> list[tuple[str, Any]]:

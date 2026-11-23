@@ -441,6 +441,30 @@ describe("a finding recorded from chat", () => {
 
     expect(await screen.findByText(/Recorded in chat/i)).toBeInTheDocument();
     expect(screen.queryByRole("link")).toBeNull();
+    expect(
+      screen.getByTitle("Recorded from a chat that was not identified."),
+    ).toBeInTheDocument();
+  });
+
+  it("says a read-only viewer has no chats, not that this one is unknown", async () => {
+    const meta = document.createElement("meta");
+    meta.name = "aqua-viewer";
+    meta.content = "1";
+    document.head.prepend(meta);
+    try {
+      renderOcc(
+        occurrence({ investigation_id: "chat-ctx-abc" }),
+        "chat-ctx-abc",
+      );
+
+      const note = await screen.findByText(/Recorded in chat/i);
+      expect(note.getAttribute("title")).toBe(
+        "Chats are not available in this view.",
+      );
+      expect(screen.queryByRole("link", { name: /Open the chat/i })).toBeNull();
+    } finally {
+      meta.remove();
+    }
   });
 
   it("opens a chat finding's evidence in Cloud Trace like any other", async () => {

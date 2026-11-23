@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import hashlib
 import json
 import re
 from typing import Any
@@ -46,7 +48,7 @@ from ambient_quality_agent.tools.trajectories.models import IngestStatus
 from google.api_core import exceptions as api_exceptions
 from google.cloud import bigquery
 
-from .conftest import FakeTrajectoryRecorder
+from .conftest import FakeTrajectoryRecorder, build_trajectory_file_store
 
 _PROJECT = "test-project"
 _DATASET = "agent_telemetry"
@@ -225,6 +227,7 @@ def _make_fetcher(
     recorder: Any | None = None,
     selector_sql: str = "",
     labels: tuple[str, ...] | None = _ALL_LABELS,
+    trajectory_file_store: Any | None = None,
 ) -> CloudLoggingFetcher:
     # None preserves the caller's pre-configured table mock on the client.
     if labels is not None:
@@ -242,6 +245,7 @@ def _make_fetcher(
             table=_TABLE,
             location=_LOCATION,
             recorder=recorder,
+            trajectory_file_store=trajectory_file_store,
             selector_sql=selector_sql,
         )
     # Swap the GCS-backed converter for one using the in-memory reader.
@@ -1686,3 +1690,106 @@ def test_every_column_the_schema_file_lists_is_read() -> None:
     ]
 
     assert unread == []
+
+
+# --- trajectory files ---------------------------------------------------------
+
+
+_IMAGE = b"\x89PNG" + bytes(28)
+
+
+def _configure_image_page(client: mock.MagicMock) -> None:
+    """Pages one single-turn row whose user message carries an inline image.
+
+    Args:
+        client: The BigQuery client mock.
+    """
+    messages = [
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "type": "blob",
+                    "content": base64.b64encode(_IMAGE).decode(),
+                    "mime_type": "image/png",
+                }
+            ],
+        }
+    ]
+    _configure_paging(
+        client,
+        page_rows=[
+            {
+                "trace_id": "trace-9",
+                "inference_rows": [
+                    _log_row(
+                        input_ref=None,
+                        output_ref=None,
+                        input_messages=json.dumps(messages),
+                    )
+                ],
+            }
+        ],
+        next_page_token=None,
+    )
+
+
+def _extract_first_part(case: Any) -> Any:
+    return case.agent_data.turns[0].events[0].content.parts[0]
+
+
+def test_fetch_page_links_trajectory_files_in_the_recorded_and_returned_case(
+    tmp_path: Any,
+) -> None:
+    client = mock.MagicMock()
+    _configure_image_page(client)
+    recorder = FakeTrajectoryRecorder()
+    store, objects = build_trajectory_file_store(tmp_path)
+
+    page = _make_fetcher(
+        client, recorder=recorder, trajectory_file_store=store
+    ).fetch_page("job-1", MetricType.SINGLE_TURN)
+
+    name = (
+        "aqa-trajectory-files/agent-key/2026-11-10/"
+        + hashlib.sha256(_IMAGE).hexdigest()
+    )
+    for case in (page.dataset.eval_cases[0], recorder.records[0].case):
+        part = _extract_first_part(case)
+        assert part.inline_data is None
+        assert part.file_data.file_uri == objects.uri(name)
+    assert objects.read_bytes(name) == _IMAGE
+    assert recorder.records[0].ingest_status is IngestStatus.INGESTED
+
+
+def test_fetch_page_counts_a_failed_trajectory_file_write_as_partial(
+    tmp_path: Any,
+) -> None:
+    client = mock.MagicMock()
+    _configure_image_page(client)
+    recorder = FakeTrajectoryRecorder()
+    store, _ = build_trajectory_file_store(tmp_path, fail_writes=True)
+    fetcher = _make_fetcher(
+        client, recorder=recorder, trajectory_file_store=store
+    )
+
+    page = fetcher.fetch_page("job-1", MetricType.SINGLE_TURN)
+
+    part = _extract_first_part(page.dataset.eval_cases[0])
+    assert part.text.startswith("<attachment: image/png, 32 bytes, sha256:")
+    assert fetcher.counts.partial == 1
+    assert recorder.records[0].ingest_status is IngestStatus.PARTIAL
+
+
+def test_fetch_page_without_a_trajectory_file_store_writes_placeholders() -> (
+    None
+):
+    client = mock.MagicMock()
+    _configure_image_page(client)
+
+    page = _make_fetcher(client).fetch_page("job-1", MetricType.SINGLE_TURN)
+
+    part = _extract_first_part(page.dataset.eval_cases[0])
+    digest = hashlib.sha256(_IMAGE).hexdigest()[:8]
+    assert part.text == f"<attachment: image/png, 32 bytes, sha256:{digest}>"
+    assert part.inline_data is None

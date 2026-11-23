@@ -1,0 +1,109 @@
+name: '📋 AI Recipe Proposal Triage'
+
+# Evaluates newly opened/reopened `[RECIPE PROPOSAL]` issues (and template-based
+# recipe proposals) via `_ai-recipe-proposal-triage-core.yml`:
+# - Gate A verifies template consistency and alerts the contributor if incomplete.
+# - Gates B-F leverage `.agents/skills/triage-recipe-proposal/SKILL.md` to post
+#   neutral first-pass bot feedback without auto-closing issues or PRs.
+
+on:
+  issues:
+    types:
+      - 'opened'
+      - 'reopened'
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'issue number to triage'
+        required: true
+        type: 'number'
+
+concurrency:
+  group: '${{ github.workflow }}-${{ github.event.issue.number || github.event.inputs.issue_number || github.run_id }}'
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: 'bash'
+
+permissions: {}
+
+jobs:
+  resolve:
+    timeout-minutes: 5
+    runs-on: 'ubuntu-latest'
+    permissions:
+      issues: 'read'
+    outputs:
+      is_proposal: '${{ steps.check_proposal.outputs.is_proposal }}'
+      issue_number: '${{ steps.check_proposal.outputs.issue_number }}'
+      issue_title: '${{ steps.check_proposal.outputs.issue_title }}'
+      issue_body: '${{ steps.check_proposal.outputs.issue_body }}'
+      issue_author: '${{ steps.check_proposal.outputs.issue_author }}'
+    steps:
+      - uses: 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' # ratchet:actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: 'astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e' # ratchet:astral-sh/setup-uv@v10.3.2
+        with:
+          python-version: '3.11'
+
+      - name: 'Check for [RECIPE PROPOSAL] tag or proposal template format'
+        id: 'check_proposal'
+        env:
+          GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+          GH_REPO: '${{ github.repository }}'
+          ISSUE_NUMBER: '${{ github.event.issue.number || github.event.inputs.issue_number }}'
+        run: |-
+          set -euo pipefail
+
+          if [[ -z "${ISSUE_NUMBER}" ]]; then
+            echo "::error::No issue number resolved from event or dispatch."
+            exit 1
+          fi
+
+          MAX_BODY_CHARS=4000
+          ISSUE_DATA="$(gh issue view "${ISSUE_NUMBER}" --json number,title,body,author,labels)"
+          TITLE="$(echo "${ISSUE_DATA}" | jq -r '.title // ""')"
+          BODY="$(echo "${ISSUE_DATA}" | jq -r --argjson max "${MAX_BODY_CHARS}" '(.body // "")[0:$max]')"
+          AUTHOR="$(echo "${ISSUE_DATA}" | jq -r '.author.login // ""')"
+
+          IS_PROPOSAL="$(printf '%s' "${ISSUE_DATA}" | uv run --no-project python3 .github/scripts/check_recipe_proposal.py \
+            --stdin \
+            --template-only | jq -r '.is_proposal')"
+
+          echo "is_proposal=${IS_PROPOSAL}" >> "${GITHUB_OUTPUT}"
+          echo "issue_number=${ISSUE_NUMBER}" >> "${GITHUB_OUTPUT}"
+          echo "issue_author=${AUTHOR}" >> "${GITHUB_OUTPUT}"
+
+          DELIM="EOF_$(uuidgen)"
+          printf 'issue_title<<%s\n%s\n%s\n' "${DELIM}" "${TITLE}" "${DELIM}" >> "${GITHUB_OUTPUT}"
+          printf 'issue_body<<%s\n%s\n%s\n' "${DELIM}" "${BODY}" "${DELIM}" >> "${GITHUB_OUTPUT}"
+
+          if [[ "${IS_PROPOSAL}" != "true" ]]; then
+            echo "Issue #${ISSUE_NUMBER} does not have [RECIPE PROPOSAL] or proposal template format — skipping automated triage."
+            exit 0
+          fi
+
+          echo "Issue #${ISSUE_NUMBER} matched [RECIPE PROPOSAL] or template format — proceeding to Gate A and Gates B-F triage."
+
+  triage:
+    needs: 'resolve'
+    if: |-
+      ${{ needs.resolve.outputs.is_proposal == 'true' }}
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+      issues: 'write'
+      pull-requests: 'read'
+    uses: './.github/workflows/_ai-recipe-proposal-triage-core.yml' # zizmor: ignore[self-repository]
+    with:
+      issue_number: '${{ needs.resolve.outputs.issue_number }}'
+      issue_title: '${{ needs.resolve.outputs.issue_title }}'
+      issue_body: '${{ needs.resolve.outputs.issue_body }}'
+      issue_author: '${{ needs.resolve.outputs.issue_author }}'
+      app_id: '${{ vars.APP_ID }}'
+    secrets:
+      APP_PRIVATE_KEY: '${{ secrets.APP_PRIVATE_KEY }}'

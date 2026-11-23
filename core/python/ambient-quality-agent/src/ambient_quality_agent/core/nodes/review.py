@@ -55,7 +55,7 @@ from google.adk.events.event import Event
 from google.adk.workflow import node
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from ambient_quality_agent.tools.ingestion.models import Page
 
@@ -111,8 +111,13 @@ def review_node(ctx: Context) -> Event:
     #
     # TODO: Decouple custom metrics into an independent producer
     # node once shared ingestion caching is available.
+    progress = _sweep.SweepProgress(state, "Session review")
     evaluations: list[_sweep.Evaluation] = [
-        ReviewEvaluation(_common.session_reviewer_factory(ctx), goal)
+        ReviewEvaluation(
+            _common.session_reviewer_factory(ctx),
+            goal,
+            on_reviewed=progress.advance,
+        )
     ]
     library, warning = _common.metric_library_factory(ctx)
     # Register evaluation pass even with only declined or refused metrics so finish()
@@ -131,7 +136,11 @@ def review_node(ctx: Context) -> Event:
         )
 
     lines = _sweep.run_sweep(
-        ctx, evaluations, node_name=NODE_NAME, budget=budget
+        ctx,
+        evaluations,
+        node_name=NODE_NAME,
+        budget=budget,
+        progress=progress,
     )
     return WorkflowState.record_progress_event(
         state, "\n".join(lines) + warning + "\n", NODE_NAME
@@ -144,10 +153,24 @@ class ReviewEvaluation:
     name = "session_review"
 
     def __init__(
-        self, reviewer: _common.SessionReviewFn, goal: InvestigationGoal
+        self,
+        reviewer: _common.SessionReviewFn,
+        goal: InvestigationGoal,
+        *,
+        on_reviewed: Callable[[int, int], None] = lambda *_: None,
     ) -> None:
+        """Sets up the review of a sweep's pages.
+
+        Args:
+            reviewer: Reviewer model callable.
+            goal: The developer's goal every session is reviewed with.
+            on_reviewed: Called after each session of a page is reviewed, with
+                the page's sessions reviewed and findings filed so far
+                (`SweepProgress.advance`).
+        """
         self._reviewer = reviewer
         self._goal = goal
+        self._on_reviewed = on_reviewed
         # Cache parsed agent instructions and tools across the sweep.
         self._revision_cache = AgentRevisionCache()
         self._tally = ReviewStats()
@@ -162,6 +185,7 @@ class ReviewEvaluation:
             self._tally,
             outcomes=self.outcomes,
             goal=self._goal.text,
+            on_reviewed=self._on_reviewed,
         )
 
     @property
@@ -219,6 +243,7 @@ def _review_page(
     *,
     outcomes: dict[str, str],
     goal: str,
+    on_reviewed: Callable[[int, int], None],
 ) -> None:
     """Review turns_by_trajectory in a page and append resulting FindingSet to state.
 
@@ -233,6 +258,8 @@ def _review_page(
         tally: Statistics tracker for review outcomes.
         outcomes: Dictionary collecting per-case outcome statuses.
         goal: The developer's goal every session is reviewed with; empty for none.
+        on_reviewed: Called after each session is reviewed, in the order they
+            finish, with the page's sessions reviewed and findings filed so far.
     """
     eval_cases = page.dataset.eval_cases or []
     revisions = page.revisions
@@ -262,6 +289,12 @@ def _review_page(
             )
             for case in eval_cases
         ]
+        filed = 0
+        for reviewed, done in enumerate(
+            futures.as_completed(submitted), start=1
+        ):
+            filed += len(cast("_CaseResult", done.result())[0])
+            on_reviewed(reviewed, filed)
         # ty cannot infer the return type through `Context.run`.
         results = [cast("_CaseResult", future.result()) for future in submitted]
 

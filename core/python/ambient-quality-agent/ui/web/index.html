@@ -18,6 +18,54 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
+    <!-- Viewer mode: a read-only host opens <head> with
+         <meta name="aqua-viewer" content="1">. This script then keeps the
+         page's storage in its memory: localStorage and sessionStorage become
+         in-memory stores, IndexedDB and the Cache API are hidden. Classic,
+         inline, import-free and first, it runs while the shell is parsed,
+         before any module, so nothing reads the real storage first, however
+         the build splits the app into chunks. If a replacement fails, the page
+         stops loading. scripts/check-built-shell.mjs checks that the build
+         keeps it first. -->
+    <script>
+      (() => {
+        if (!document.querySelector('meta[name="aqua-viewer"][content="1"]'))
+          return;
+        const memory = () => {
+          const items = new Map();
+          return {
+            get length() {
+              return items.size;
+            },
+            key: (index) => [...items.keys()][index] ?? null,
+            getItem: (key) => items.get(String(key)) ?? null,
+            setItem: (key, value) => {
+              items.set(String(key), String(value));
+            },
+            removeItem: (key) => {
+              items.delete(String(key));
+            },
+            clear: () => {
+              items.clear();
+            },
+          };
+        };
+        try {
+          for (const [name, value] of [
+            ["localStorage", memory()],
+            ["sessionStorage", memory()],
+            ["indexedDB", undefined],
+            ["caches", undefined],
+          ]) {
+            Object.defineProperty(window, name, { value, enumerable: true });
+          }
+        } catch (error) {
+          // No module has run yet, and none parsed after this point will.
+          window.stop();
+          throw error;
+        }
+      })();
+    </script>
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"

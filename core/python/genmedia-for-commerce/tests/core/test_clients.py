@@ -151,7 +151,11 @@ def test_the_tracking_headers_name_the_recipe(monkeypatch):
         headers["x-goog-api-client"].removeprefix(agent + " ").partition(" ")
     )
     assert python.startswith("gl-python/3.")
-    assert rest == f"gccl/{agent}"
+    assert rest == "gccl/1.2.3-genmedia-for-commerce"
+    # Usage data reads the gccl/ token only as one segment: no "/" after
+    # its version, last in the header (2026-10-30 parsing rule).
+    token = headers["x-goog-api-client"].split()[-1]
+    assert token.startswith("gccl/") and "/" not in token[len("gccl/") :]
 
 
 def test_the_tracking_headers_without_package_metadata(monkeypatch):

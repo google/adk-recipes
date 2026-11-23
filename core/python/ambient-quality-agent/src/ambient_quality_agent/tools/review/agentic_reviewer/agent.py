@@ -17,6 +17,9 @@
 Review models starting with `CLAUDE_MODEL_PREFIX` run on ADK's Vertex AI
 `Claude` with adaptive thinking at `CLAUDE_EFFORT` and prompt caching, which
 `reviewer` enables; all other models run on `Gemini` at `THINKING_LEVEL`.
+Both model classes stop a model call attempt that runs longer than
+`MODEL_CALL_TIMEOUT_SECONDS` and retry it, up to `MODEL_CALL_ATTEMPTS` attempts
+in total; only `REVIEW_DEADLINE_SECONDS` bounds the last attempt.
 
 `ReviewLoopController` applies these steps to each model request:
 1. Replaces the system instruction to strip the agent identity line appended by ADK.
@@ -29,7 +32,9 @@ Review models starting with `CLAUDE_MODEL_PREFIX` run on ADK's Vertex AI
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import logging
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
@@ -45,7 +50,7 @@ from google.adk.models.google_llm import Gemini
 from google.genai import types
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Sequence
+    from collections.abc import AsyncGenerator, Callable, Sequence
 
     from anthropic import AsyncAnthropicVertex
     from google.adk.agents.callback_context import CallbackContext
@@ -54,6 +59,8 @@ if TYPE_CHECKING:
     from google.adk.tools.base_tool import BaseTool
     from google.adk.tools.tool_context import ToolContext
     from google.genai import Client
+
+logger = logging.getLogger(__name__)
 
 AGENT_NAME = "session_reviewer"
 """Name of the reviewer agent, and the author of its events."""
@@ -67,7 +74,12 @@ FORCED_STATE_KEY = "temp:agentic_review_forced"
 PRUNED_STATE_KEY = "temp:agentic_review_pruned"
 """State key with the number of tool results first stubbed for this call."""
 
-THINKING_LEVEL = types.ThinkingLevel.LOW
+TIMEOUT_RETRIES_METADATA_KEY = "agentic_review_timeout_retries"
+"""`LlmResponse.custom_metadata` key with the number of timed-out attempts
+before the model call that returned the response; absent when there were
+none."""
+
+THINKING_LEVEL = types.ThinkingLevel.HIGH
 """Thinking level for every Gemini model call, validated with
 `DEFAULT_REVIEW_MODEL`."""
 
@@ -96,6 +108,21 @@ REVIEW_DEADLINE_SECONDS = 1_800
 Validated runs took a median of 38 s per session and a few minutes at most, so
 a review past this limit is stuck rather than slow."""
 
+MODEL_CALL_TIMEOUT_SECONDS = 900
+"""Wall-clock limit, in seconds, for each attempt of a reviewer model call but
+the last, including the client's own quota retries.
+
+A call that never returns would otherwise hold the review until
+`REVIEW_DEADLINE_SECONDS`. In recorded runs, the slowest successful call took
+668 s on gemini-4-argon and 955 s on gemini-4-carbon."""
+
+MODEL_CALL_ATTEMPTS = 2
+"""Attempts per reviewer model call when attempts time out.
+
+Only `REVIEW_DEADLINE_SECONDS` bounds the last attempt, because no retry
+follows it: a model that never answers fails the review at the review
+deadline."""
+
 MAX_MODEL_CALLS = 40
 """Maximum model calls per review; the final call forces a text answer."""
 
@@ -119,7 +146,9 @@ def create_client() -> Client:
 
     Retries `genai_json.RETRY_STATUS_CODES` with the backoff in
     `QUOTA_RETRY_WAITS_SECONDS` because quota exhaustion windows outlast short
-    retries.
+    retries. Sets the HTTP timeout of each request to
+    `REVIEW_DEADLINE_SECONDS`, so the transport never stops a call before the
+    reviewer's own limits do.
 
     Returns:
         Configured Vertex AI Gemini `Client`.
@@ -137,7 +166,7 @@ def create_client() -> Client:
             max_delay=QUOTA_RETRY_WAITS_SECONDS[-1],
             http_status_codes=genai_json.RETRY_STATUS_CODES,
         ),
-        timeout_ms=genai_json.CALL_TIMEOUT_MS,
+        timeout_ms=REVIEW_DEADLINE_SECONDS * 1000,
     )
 
 
@@ -166,7 +195,7 @@ def build_reviewer_agent(
     from ambient_quality_agent.core.labels import build_request_labels
 
     no_automatic_calls = types.AutomaticFunctionCallingConfig(disable=True)
-    llm: Gemini | Claude
+    llm: _ReviewGemini | _ReviewClaude
     if model.startswith(CLAUDE_MODEL_PREFIX):
         # `Claude` extracts the project and region from the resource name.
         llm = _ReviewClaude(
@@ -187,7 +216,7 @@ def build_reviewer_agent(
             )
         )
     else:
-        llm = Gemini(model=model, client=client or create_client())
+        llm = _ReviewGemini(model=model, client=client or create_client())
         content_config = types.GenerateContentConfig(
             # Request thought summaries so plugins that observe the run can
             # record the reasoning; ADK echoes summary parts back in subsequent
@@ -235,8 +264,86 @@ def extract_usage(response: Any) -> dict[str, int]:
     }
 
 
+async def _call_model_with_timeout_retry(
+    generate: Callable[[], AsyncGenerator[LlmResponse, None]],
+) -> list[LlmResponse]:
+    """Run a model call, retrying an attempt that times out.
+
+    Every attempt but the last runs for at most `MODEL_CALL_TIMEOUT_SECONDS`;
+    the review deadline bounds the last one. An attempt's responses are
+    collected before they are returned, so a retry never repeats a response.
+    The reviewer does not stream, so its calls yield one response.
+
+    Args:
+        generate: Starts one attempt of the model call.
+
+    Returns:
+        The responses of the first attempt that finished in time. After a
+        retry, each response's ``custom_metadata`` holds the number of
+        timed-out attempts under `TIMEOUT_RETRIES_METADATA_KEY`.
+
+    Raises:
+        TimeoutError: If the last attempt raises its own timeout, such as an
+            HTTP timeout.
+    """
+    retries = 0
+    while True:
+        is_last = retries + 1 >= MODEL_CALL_ATTEMPTS
+        try:
+            async with (
+                asyncio.timeout(
+                    None if is_last else MODEL_CALL_TIMEOUT_SECONDS
+                ),
+                # Close a timed-out attempt's generator now, so its HTTP
+                # request ends before the retry starts.
+                contextlib.aclosing(generate()) as attempt,
+            ):
+                responses = [response async for response in attempt]
+            break
+        except TimeoutError as exc:
+            if is_last:
+                raise
+            retries += 1
+            logger.warning(
+                "session review: model call attempt %d of %d timed out "
+                "(%s); retrying",
+                retries,
+                MODEL_CALL_ATTEMPTS,
+                type(exc).__name__,
+            )
+    if retries:
+        for response in responses:
+            response.custom_metadata = {
+                **(response.custom_metadata or {}),
+                TIMEOUT_RETRIES_METADATA_KEY: retries,
+            }
+    return responses
+
+
+class _ReviewGemini(Gemini):
+    """ADK `Gemini` with the reviewer's per-call timeout and retry."""
+
+    async def generate_content_async(
+        self, llm_request: LlmRequest, stream: bool = False
+    ) -> AsyncGenerator[LlmResponse, None]:
+        """Call Gemini, retrying a call that runs past its timeout.
+
+        Args:
+            llm_request: Model request.
+            stream: Whether to stream the response.
+
+        Yields:
+            Model responses.
+        """
+        generate = super().generate_content_async
+        for response in await _call_model_with_timeout_retry(
+            lambda: generate(llm_request, stream)
+        ):
+            yield response
+
+
 class _ReviewClaude(Claude):
-    """ADK `Claude` configured with the reviewer's retries, timeout, and forced answer."""
+    """ADK `Claude` configured with the reviewer's retries, timeouts, and forced answer."""
 
     @cached_property
     def _anthropic_client(self) -> AsyncAnthropicVertex:
@@ -248,15 +355,33 @@ class _ReviewClaude(Claude):
         under the default timeout.
 
         Returns:
-            `AsyncAnthropicVertex` client with a per-attempt timeout of
-            `genai_json.CALL_TIMEOUT_MS`.
+            `AsyncAnthropicVertex` client with a per-request timeout of
+            `REVIEW_DEADLINE_SECONDS`, so the transport never stops a call
+            before the reviewer's own limits do.
         """
         return super()._anthropic_client.with_options(
-            max_retries=0, timeout=genai_json.CALL_TIMEOUT_MS / 1000
+            max_retries=0, timeout=REVIEW_DEADLINE_SECONDS
         )
 
     async def generate_content_async(
         self, llm_request: LlmRequest, stream: bool = False
+    ) -> AsyncGenerator[LlmResponse, None]:
+        """Call Claude, retrying a call that runs past its timeout.
+
+        Args:
+            llm_request: Model request.
+            stream: Whether to stream the response.
+
+        Yields:
+            Model responses.
+        """
+        for response in await _call_model_with_timeout_retry(
+            lambda: self._generate_with_transient_retries(llm_request, stream)
+        ):
+            yield response
+
+    async def _generate_with_transient_retries(
+        self, llm_request: LlmRequest, stream: bool
     ) -> AsyncGenerator[LlmResponse, None]:
         """Call Claude using the reviewer's quota retry backoff.
 
@@ -576,7 +701,9 @@ def _build_pruned_response(
         error text and `prompts.PRUNED_NOTE`.
     """
     body = response.response or {}
-    text = body.get("output", body.get("error", ""))
+    text = next(
+        (body[key] for key in ("output", "result", "error") if key in body), ""
+    )
     return types.FunctionResponse(
         name=response.name,
         id=response.id,

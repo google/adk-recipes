@@ -21,10 +21,15 @@
  * disagreeing with itself.
  */
 
-import type { InvestigationCounters, Stats } from "./aqua-api";
+import type {
+  InvestigationCounters,
+  InvestigationProgress,
+  Stats,
+} from "./aqua-api";
 import { isNoData } from "./failure";
 import { count, countEvaluatedTrajectories } from "./funnel";
 import {
+  isInFlight,
   isStalled,
   startedAt,
   type InvestigationLike,
@@ -46,6 +51,7 @@ export interface InvestigationRecordLike extends InvestigationLike {
   metrics_passed?: number | null;
   metrics_failed?: number | null;
   metrics_errored?: number | null;
+  progress?: InvestigationProgress | null;
 }
 
 /** The em dash every unset field renders as, so "nothing recorded" looks the
@@ -139,6 +145,8 @@ export function buildInvestigationStats(
  *  core/investigation/job_execution.py). */
 export function noCountsText(investigation: InvestigationRecordLike): string {
   const status = (investigation.status || "").toLowerCase();
+  if (status === "cancelled")
+    return "No counts: a cancelled investigation records none.";
   if (investigation.error || status === "failed")
     return "No counts: a failed investigation records none.";
   if (status === "scheduled") {
@@ -150,10 +158,59 @@ export function noCountsText(investigation: InvestigationRecordLike): string {
   return "No counts recorded.";
 }
 
+/** How far an investigation still going got, from the newest stage row its
+ *  pipeline wrote.
+ *
+ * Null for an investigation that has settled, for a stalled one, whose last
+ * row says nothing about now, and for one that has written none yet.
+ */
+export function extractCurrentProgress(
+  investigation: InvestigationRecordLike,
+  now: number = Date.now(),
+): InvestigationProgress | null {
+  if (!isInFlight(investigation, now)) return null;
+  return investigation.progress ?? null;
+}
+
+/** The counts a stage has, in words: "45 of 205 trajectories, 12 findings",
+ *  "1 finding", "3 clusters". */
+export function describeProgress(progress: InvestigationProgress): string {
+  const words: string[] = [];
+  if (progress.total != null) {
+    words.push(
+      `${count(progress.evaluated)} of ${progress.total} trajectories`,
+    );
+  }
+  if (progress.findings != null) {
+    words.push(formatNounCount(progress.findings, "finding"));
+  }
+  if (progress.clusters != null) {
+    words.push(formatNounCount(progress.clusters, "cluster"));
+  }
+  return words.join(", ");
+}
+
+/** "1 finding", "2 findings". */
+function formatNounCount(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
 /** Whether an investigation is waiting for the delayed trigger an agent
  *  redeploy set. */
 export function isScheduled(investigation: InvestigationRecordLike): boolean {
   return (investigation.status || "").toLowerCase() === "scheduled";
+}
+
+/** Whether an investigation has not finished, so a user can still cancel it:
+ *  the statuses `model.cancel_investigation` accepts. */
+export function isCancellable(investigation: InvestigationRecordLike): boolean {
+  const status = (investigation.status || "").toLowerCase();
+  return status === "scheduled" || status === "pending" || status === "running";
+}
+
+/** Whether a user cancelled the investigation. */
+export function isCancelled(investigation: InvestigationRecordLike): boolean {
+  return (investigation.status || "").toLowerCase() === "cancelled";
 }
 
 /** Whether a scheduled investigation's trigger is due and has not started it.
@@ -225,7 +282,7 @@ export function metricsAllPassed(
 }
 
 /** Names an investigation's state when it has no evaluated trajectories to count:
- *  "skipped", "failed", "no data" (a sweep that failed because there was
+ *  "skipped", "cancelled", "failed", "no data" (a sweep that failed because there was
  *  nothing to read), "scheduled", "stalled", "running", "pending" or "no
  *  trajectories evaluated". Returns null for an investigation with evaluated
  *  trajectories, whose pass and fail counts say more. The investigations table
@@ -235,6 +292,7 @@ export function formatInvestigationStateWord(
 ): string | null {
   const status = (investigation.status || "").toLowerCase();
   if (status === "skipped") return "skipped";
+  if (status === "cancelled") return "cancelled";
   if (investigation.error)
     return isNoData(investigation.error) ? "no data" : "failed";
   if (status === "failed") return "failed";
@@ -328,12 +386,12 @@ const FAILURE_COUNTER_KEYS: readonly (keyof InvestigationCounters)[] = [
  *
  * Used by the "Only with failures" filter on the investigations table so idle
  * `done` sweeps that scanned zero trajectories (`— / — / —`), duplicate-trigger
- * `skipped` investigations, and empty-deployment `no-data` rows are filtered
- * out along with clean passes.
+ * `skipped` investigations, user-`cancelled` ones, and empty-deployment
+ * `no-data` rows are filtered out along with clean passes.
  */
 export function hasFailures(investigation: InvestigationRecordLike): boolean {
   const status = (investigation.status || "").toLowerCase();
-  if (status === "skipped") return false;
+  if (status === "skipped" || status === "cancelled") return false;
   if (investigation.error) return !isNoData(investigation.error);
   if (status === "failed" || isStalled(investigation)) return true;
   const c = investigation.counters;

@@ -486,6 +486,8 @@ def test_without_a_goal_the_first_message_is_the_session_section() -> None:
 
     assert prompt.initial_message == (
         "## Session\n"
-        + elided_trajectory.render_elided_trajectory(prompt.trajectory_json)
+        + elided_trajectory.render_elided_trajectory(
+            prompt.trajectory_json, count_string_lines=True
+        )
         + "\n"
     )

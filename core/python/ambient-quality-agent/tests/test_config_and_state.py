@@ -53,6 +53,7 @@ _AQA_ENV_VARS = (
     "AQA_DELAY_TASK_QUEUE",
     "AQA_AMBIENT_CALLER_SA",
     "AQA_SELECTOR_AI_MODEL",
+    "AQA_STORE_TRAJECTORY_FILES",
 )
 
 _CAPTURE_VAR = "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"
@@ -180,7 +181,7 @@ def test_insights_model_location_from_env(
     )
 
 
-def test_review_model_defaults_to_argon_global(
+def test_review_model_defaults_to_hydrogen_global(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _set_required(monkeypatch)
@@ -188,7 +189,7 @@ def test_review_model_defaults_to_argon_global(
     cfg = config_module.load()
 
     assert cfg.review_model == config_module.Model(
-        model="gemini-4-argon", location="global"
+        model="gemini-4-hydrogen", location="global"
     )
     assert cfg.insights_model == config_module.Model(
         model="gemini-3.1-pro-preview", location="global"
@@ -319,6 +320,60 @@ def test_the_review_prune_watermark_defaults_and_reads_the_env(
 
     monkeypatch.setenv("AQA_REVIEW_PRUNE_WATERMARK_TOKENS", "250000")
     assert config_module.load().review_prune_watermark_tokens == 250_000
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, True),
+        ("", True),
+        ("  ", True),
+        ("true", True),
+        (" TRUE ", True),
+        ("1", True),
+        ("yes", True),
+        ("on", True),
+        ("false", False),
+        (" FALSE ", False),
+        ("0", False),
+        ("no", False),
+        ("off", False),
+    ],
+)
+def test_the_trajectory_file_switch_reads_true_and_false_spellings(
+    monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: bool
+) -> None:
+    _set_required(monkeypatch)
+    if raw is not None:
+        monkeypatch.setenv("AQA_STORE_TRAJECTORY_FILES", raw)
+
+    assert config_module.load().store_trajectory_files is expected
+
+
+@pytest.mark.parametrize("raw", ["disabled", "n", "f", "maybe"])
+def test_an_unknown_trajectory_file_switch_value_stops_startup(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    """Failing open would keep copying personal data a deployment meant to
+    stop copying."""
+    _set_required(monkeypatch)
+    monkeypatch.setenv("AQA_STORE_TRAJECTORY_FILES", raw)
+
+    with pytest.raises(RuntimeError, match="AQA_STORE_TRAJECTORY_FILES"):
+        config_module.load()
+
+
+def test_the_trajectory_file_switch_survives_an_asdict_round_trip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required(monkeypatch)
+    monkeypatch.setenv("AQA_STORE_TRAJECTORY_FILES", "false")
+    cfg = config_module.load()
+
+    rebuilt = config_module.Config(**dataclasses.asdict(cfg))
+
+    assert rebuilt.store_trajectory_files is False
+    assert dataclasses.asdict(cfg)["store_trajectory_files"] is False
 
 
 @pytest.mark.parametrize(
@@ -701,11 +756,14 @@ def test_workflow_state_from_config() -> None:
         # The review reads the goal from here, so a local run without it would
         # review with no goal.
         jobs_gcs_bucket="aqa-jobs",
+        # Set away from its default: `build_fetcher` reads it off the state.
+        store_trajectory_files=False,
     )
 
     state = WorkflowState.from_config(cfg)
 
     assert state.observed_agent_name == "watched-agent"
+    assert state.store_trajectory_files is False
     assert state.jobs_gcs_bucket == "aqa-jobs"
     assert state.project_id == cfg.project_id
     assert state.location == cfg.location

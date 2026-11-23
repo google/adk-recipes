@@ -92,7 +92,9 @@ class ObjectStore(Protocol):
             StorageNotConfiguredError: If the backend has nowhere to keep objects.
         """
 
-    def write_bytes(self, name: str, data: bytes) -> None:
+    def write_bytes(
+        self, name: str, data: bytes, *, overwrite: bool = True
+    ) -> bool:
         """Writes an object's raw content, replacing it whole.
 
         A reader sees either the previous object or the new one, never a
@@ -101,6 +103,12 @@ class ObjectStore(Protocol):
         Args:
             name: Object name relative to the store's root.
             data: Content to write.
+            overwrite: When False, the write happens only if no object has that
+                name, atomically with respect to other writers.
+
+        Returns:
+            True if the object was written, False if `overwrite` was False and
+            the object already existed.
 
         Raises:
             StorageNotConfiguredError: If the backend has nowhere to keep objects.

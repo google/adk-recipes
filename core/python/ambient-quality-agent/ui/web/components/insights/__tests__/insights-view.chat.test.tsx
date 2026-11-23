@@ -28,6 +28,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InsightView } from "@/lib/aqua-api";
+import {
+  rememberConversation,
+  resetConversationsForTest,
+} from "@/lib/aqua-conversations";
 import { insightRcaPrompt } from "../insight-rca-prompt";
 import { InsightsView } from "../insights-view";
 
@@ -108,10 +112,12 @@ describe("the opening question", () => {
 
 describe("the Chat action", () => {
   beforeEach(() => {
+    resetConversationsForTest();
     vi.restoreAllMocks();
   });
 
   afterEach(() => {
+    resetConversationsForTest();
     vi.unstubAllGlobals();
   });
 
@@ -141,5 +147,31 @@ describe("the Chat action", () => {
     expect(
       screen.queryByRole("button", { name: /Diagnose insight in chat/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("opens the latest thread in 1 click on Chat and opens the menu on the caret without navigating to detail", async () => {
+    rememberConversation(
+      "ctx-card",
+      "Card RCA thread",
+      undefined,
+      INSIGHT.insight_id,
+    );
+    const href = renderPage();
+
+    const caret = await screen.findByRole("button", {
+      name: `Chat options for ${INSIGHT.insight_id}`,
+    });
+    await userEvent.click(caret);
+
+    expect(screen.queryByText("Detail")).not.toBeInTheDocument();
+    expect(await screen.findByText("Card RCA thread")).toBeInTheDocument();
+
+    const chat = await screen.findByRole("button", {
+      name: /Diagnose insight in chat/,
+    });
+    await userEvent.click(chat);
+
+    await waitFor(() => expect(href()).toBe("/c?id=ctx-card"));
+    expect(screen.queryByText("Detail")).not.toBeInTheDocument();
   });
 });

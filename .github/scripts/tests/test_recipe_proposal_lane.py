@@ -124,6 +124,16 @@ def test_intake_never_comments():
     assert "gh issue comment" not in script
 
 
+def test_intake_triage_only_runs_when_maintainer_chooses():
+    """Triage must never run automatically on newly opened proposals.
+    It runs only when a maintainer chooses to trigger it via issue_comment
+    or workflow_dispatch."""
+    intake = _yaml("recipe-proposal-intake.yml")
+    triage_if = str(intake["jobs"]["triage"].get("if") or "")
+    assert "issue_comment" in triage_if
+    assert "workflow_dispatch" in triage_if
+
+
 def test_the_failure_notifier_stays_quiet_on_proposals():
     """`resolve` can fail before any skip decision exists — an API blip —
     and `notify-failure` comments on whatever is in its `needs`. Without
