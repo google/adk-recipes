@@ -318,7 +318,7 @@ updates:
     ignore:
       - dependency-name: "*"
 
-  # terraform (89 .tf files, including this repo's own .github/terraform/)
+  # terraform (.tf files across recipes)
   # and pre-commit (one recipe config) are a weaker case than the rest:
   # neither appears in GitHub's dependency-graph supported-ecosystems table,
   # so neither can raise an alert, so neither can open a SECURITY PR today.
