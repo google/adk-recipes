@@ -21,6 +21,7 @@ commands so a benign segment can't smuggle a gated one (``ls && bq rm``).
 from __future__ import annotations
 
 import re
+import shlex
 
 _WRAPPER_RE = re.compile(
     r"""^(?:bash|sh|zsh)\s+-c\s+(['"])(.*)\1\s*$""", re.DOTALL
@@ -34,9 +35,116 @@ _SKIP_PREFIXES = frozenset({"env"})
 
 
 def strip_wrapper(command: str) -> str:
-    """Unwrap a single ``bash -c '...'`` / ``sh -c "..."`` shell wrapper."""
-    m = _WRAPPER_RE.match(command.strip())
-    return m.group(2).strip() if m else command.strip()
+    """Unwrap a single ``bash -c '...'`` / ``sh -c "..."`` shell wrapper.
+
+    The inner text is the argument the shell receives, read with the shell's
+    quoting rules. An argument built from several quoted pieces, such as
+    ``sh -c 'sh -c '"'"'rm -rf ~'"'"''``, unwraps to the command the shell
+    runs, not to the text between the first and last quote. A wrapper that
+    does not lex as exactly the shell, ``-c`` and one argument is left as is.
+    """
+    stripped = command.strip()
+    if not _WRAPPER_RE.match(stripped):
+        return stripped
+    try:
+        lx = shlex.shlex(stripped, posix=True, punctuation_chars=True)
+        lx.whitespace_split = True
+        lx.commenters = ""
+        tokens = list(lx)
+    except ValueError:
+        return stripped
+    if len(tokens) != 3:
+        return stripped
+    return tokens[2].strip()
+
+
+# Characters that end a word. A `#` starts a shell comment only when it is the
+# first character of a word, so only directly after the start of the command or
+# one of these, unquoted and unescaped.
+_WORD_BREAKS = frozenset(" \t\n;&|()<>")
+
+
+def strip_comments(command: str, *, newline: str = "\n") -> str:
+    """Remove unquoted shell comments the way a POSIX shell does.
+
+    A comment starts at an unquoted, unescaped ``#`` that begins a word and
+    runs to the end of the line. A ``#`` inside a word (``x#y``), inside quotes
+    or after an escaped character (``\\ #``) is an ordinary character and is
+    kept. Quotes inside a comment have no effect, so an apostrophe in a comment
+    cannot open a quoted string that hides the next line. A backslash followed
+    by a newline is a line continuation: the shell removes both and joins the
+    two lines, so this does too. Each other unquoted newline is replaced by
+    ``newline``, so a caller that does not treat a newline as a command
+    separator can ask for ``" ; "``.
+
+    When in doubt this keeps text: seeing a command the shell would skip can
+    only make a guard stricter, while missing one would let it through.
+    """
+    out: list[str] = []
+    in_single = in_double = False
+    word_start = True  # the next character would begin a new word
+    # One entry per open parenthesis: True when it opened `$(`.
+    open_parens: list[bool] = []
+    prev_dollar = False
+    i, n = 0, len(command)
+    while i < n:
+        ch = command[i]
+        nxt = command[i + 1 : i + 2]
+        was_dollar, prev_dollar = prev_dollar, False
+        if in_single:
+            out.append(ch)
+            in_single = ch != "'"
+            i += 1
+        elif in_double:
+            if ch == "\\" and nxt == "\n":
+                i += 2  # line continuation inside double quotes
+            elif ch == "\\" and nxt:
+                out.append(ch + nxt)
+                i += 2
+            else:
+                out.append(ch)
+                in_double = ch != '"'
+                i += 1
+        elif ch == "\\" and nxt == "\n":
+            i += 2  # line continuation: the word, if any, goes on
+        elif ch == "\\" and not nxt:
+            i += 1  # a lone backslash at the very end: the shell ignores it
+        elif ch == "\\" and nxt:
+            out.append(ch + nxt)
+            word_start = False  # an escaped character is part of a word
+            i += 2
+        elif ch in ("'", '"'):
+            in_single, in_double = ch == "'", ch == '"'
+            out.append(ch)
+            word_start = False
+            i += 1
+        elif ch == "#" and word_start:
+            # A comment inside a backquoted command ends at the closing
+            # backquote, so stop there and keep what follows.
+            while i < n and command[i] not in "\n`":
+                i += 1
+        elif ch == "\n":
+            out.append(newline)
+            word_start = True
+            i += 1
+        else:
+            out.append(ch)
+            if ch == "(":
+                open_parens.append(was_dollar)
+                word_start = True
+            elif ch == ")":
+                # A `)` that closes `$(...)` can sit in the middle of a word,
+                # where a `#` that follows is plain text: `echo $(true)#$(cmd)`
+                # runs cmd. After a subshell `)` a `#` starts a comment.
+                closes_substitution = (
+                    open_parens.pop() if open_parens else False
+                )
+                word_start = not closes_substitution
+            else:
+                word_start = ch in _WORD_BREAKS
+            prev_dollar = ch == "$"
+            i += 1
+    return "".join(out)
 
 
 def split_segments(command: str) -> list[str]:
@@ -49,6 +157,7 @@ def split_segments(command: str) -> list[str]:
     splits, but not an fd-dup/redirect ``&`` (``2>&1``, ``&>out``) that sits
     next to a ``<``/``>``/``&``.
     """
+    command = strip_comments(command)
     parts: list[str] = []
     buf: list[str] = []
     in_single = in_double = False
