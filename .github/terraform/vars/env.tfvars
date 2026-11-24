@@ -1,6 +1,0 @@
-project_id      = "adk-devops"
-service_account = "github-integration-sa"
-repo            = "google/adk-recipes"
-pool            = "github-pool"
-oidc_provider   = "github-provider"
-organization    = "google"

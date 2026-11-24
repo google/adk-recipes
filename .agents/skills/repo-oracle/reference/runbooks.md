@@ -158,10 +158,3 @@ vertical-skill changes in the same PR.
 3. **`tools/tests/`** — covered by `tools-tests.yml`.
 4. **A workflow** — registering the subcommand makes it runnable locally; it does not
    make CI run it.
-
----
-
-## Set up CI cloud auth
-
-Read `.github/terraform/README.md`. It covers Workload Identity Federation between
-GitHub Actions and Google Cloud, and outputs the provider value the workflows consume.

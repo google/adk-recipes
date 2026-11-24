@@ -187,7 +187,6 @@ to?" The caller decides whether it is worth the wait.
 | What the repo skills do | `ls .agents/skills/` and that skill's `SKILL.md` frontmatter for what EXISTS; `docs/recipe-handbook/skills-catalog.md` for the human-readable write-up | read the frontmatter, don't grep one line — some are folded YAML blocks. The two can disagree; the directory wins on existence |
 | Formatting and lint rules | Python → root `pyproject.toml`, `[tool.ruff]`; Go → `.golangci.yml`; TypeScript → `biome.json` | config is repo-wide; `AGENTS.md` forbids a per-recipe Ruff config |
 | Docs writing rules | `.github/style.md` | |
-| CI cloud auth, OIDC | `.github/terraform/README.md` | |
 | Repo conventions for agents | `AGENTS.md` | |
 | Filing a bug, requesting a recipe | `.github/ISSUE_TEMPLATE/` | blank issues are disabled, so one of the templates is mandatory |
 | The CLA, contribution terms, licence | `CONTRIBUTING.md`, `LICENSE` | |
