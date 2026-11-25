@@ -16,11 +16,14 @@
 
 import asyncio
 import base64
+import ipaddress
 import logging
 import os
+import socket
 import ssl
 import time
 from typing import Any
+from urllib.parse import quote, urlsplit
 
 import aiohttp
 import google.auth
@@ -37,6 +40,16 @@ URL_TOKEN_API_URL = os.getenv("URL_TOKEN_API_URL")
 DOCUMENT_API_BASE_URL = os.getenv("DOCUMENT_API_BASE_URL") or ""
 USE_MOCK_API = str(os.getenv("USE_MOCK_API")).lower() == "true"
 MAX_CONCURRENT_DOWNLOADS = int(os.environ["MAX_CONCURRENT_DOWNLOADS"])
+_RAW_ALLOWED_DOCUMENT_HOSTS = os.getenv("ALLOWED_DOCUMENT_HOSTS")
+ALLOWED_DOCUMENT_HOSTS: frozenset[str] = (
+    frozenset(
+        host.strip().rstrip(".").lower()
+        for host in _RAW_ALLOWED_DOCUMENT_HOSTS.split(",")
+        if host.strip()
+    )
+    if _RAW_ALLOWED_DOCUMENT_HOSTS
+    else frozenset()
+)
 ALLOWED_MIME_TYPES = {
     "application/pdf",
     "text/html",
@@ -57,6 +70,63 @@ _CACHED_CREDENTIALS: dict[str, str | None] = {"key": None, "secret": None}
 _TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": 0.0}
 
 _SSL_CONTEXT = ssl.create_default_context()
+
+
+def _is_disallowed_ip(
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    """Returns True if an IP address is internal, reserved, or non-global."""
+    effective_ip: ipaddress.IPv4Address | ipaddress.IPv6Address = (
+        ip.ipv4_mapped
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None
+        else ip
+    )
+    return (
+        not effective_ip.is_global
+        or effective_ip.is_private
+        or effective_ip.is_loopback
+        or effective_ip.is_link_local
+        or effective_ip.is_multicast
+        or effective_ip.is_reserved
+        or effective_ip.is_unspecified
+    )
+
+
+async def _validate_download_url(url: str) -> None:
+    """Validates a document download URL to mitigate SSRF attacks.
+
+    Enforces http(s) schemes, optional hostname allowlisting via
+    ``ALLOWED_DOCUMENT_HOSTS``, and rejects hosts resolving to non-global
+    (loopback, private, link-local/metadata, multicast, reserved, or
+    unspecified) IPv4/IPv6 addresses.
+    """
+    parsed = urlsplit(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"unsupported URL scheme: {parsed.scheme!r}")
+
+    raw_host = parsed.hostname
+    if not raw_host:
+        raise ValueError("URL has no host component")
+
+    host = raw_host.rstrip(".").lower()
+    if ALLOWED_DOCUMENT_HOSTS and host not in ALLOWED_DOCUMENT_HOSTS:
+        raise ValueError(f"host {host!r} is not in ALLOWED_DOCUMENT_HOSTS")
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    loop = asyncio.get_running_loop()
+    try:
+        addrinfos = await loop.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as e:
+        raise ValueError(f"cannot resolve host {host!r}: {e}") from e
+
+    if not addrinfos:
+        raise ValueError(f"cannot resolve host {host!r}: no addresses")
+
+    for _family, _socktype, _proto, _canonname, sockaddr in addrinfos:
+        ip_str = str(sockaddr[0]).split("%", 1)[0]
+        ip = ipaddress.ip_address(ip_str)
+        if _is_disallowed_ip(ip):
+            raise ValueError(f"blocked non-public address: {ip}")
 
 
 def get_secret_client():
@@ -202,10 +272,13 @@ async def fetch_document_urls_async(collection_id: str) -> list[str]:
             "accept": "application/json",
             "Authorization": f"Bearer {token}",
         }
+        safe_collection_id = quote(collection_id, safe="")
         if "{collection_id}" in DOCUMENT_API_BASE_URL:
-            url = DOCUMENT_API_BASE_URL.format(collection_id=collection_id)
+            url = DOCUMENT_API_BASE_URL.format(
+                collection_id=safe_collection_id
+            )
         else:
-            url = f"{DOCUMENT_API_BASE_URL}/{collection_id}"
+            url = f"{DOCUMENT_API_BASE_URL}/{safe_collection_id}"
 
         logging.info(f"API: Fetching list at {url}")
 
@@ -240,7 +313,10 @@ async def download_file_async(
     """
     async with semaphore:
         try:
-            async with session.get(url, ssl=_SSL_CONTEXT, timeout=60) as resp:
+            await _validate_download_url(url)
+            async with session.get(
+                url, ssl=_SSL_CONTEXT, timeout=60, allow_redirects=False
+            ) as resp:
                 if resp.status != 200:
                     return None
 
