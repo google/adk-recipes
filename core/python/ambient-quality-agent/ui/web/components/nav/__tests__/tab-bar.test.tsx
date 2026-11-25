@@ -29,6 +29,10 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
+import {
+  isCommandPaletteOpen,
+  setCommandPaletteOpen,
+} from "@/lib/command-palette";
 import { publishRailState } from "@/lib/rail-state";
 import { endTour, useTourStep } from "@/lib/tour-state";
 import { TabBar } from "../tab-bar";
@@ -259,6 +263,19 @@ describe("TabBar", () => {
     );
     expect(tour.result.current).toBe(0);
     act(() => endTour());
+  });
+
+  it("opens the command palette from the search button", async () => {
+    renderBar(stubApi({ verdict: "watching", reason: "ok" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Search" }),
+    );
+    expect(isCommandPaletteOpen()).toBe(true);
+    // An icon with the shortcut in its tooltip, not written on the bar.
+    const button = screen.getByRole("button", { name: "Search" });
+    expect(button).toHaveTextContent("");
+    expect(button.getAttribute("title")).toMatch(/^Search \((⌘K|Ctrl\+K)\)$/);
+    act(() => setCommandPaletteOpen(false));
   });
 
   it("stays neutral while health is unknown", async () => {

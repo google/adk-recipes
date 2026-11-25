@@ -66,9 +66,11 @@ COPY --chown=agent:agent ./pyproject.toml ./README.md ./uv.lock ./
 # Named explicitly rather than copying all of src/, which also holds the
 # standalone chat UI -- that has its own deployment and no place in this image.
 # `ambient_quality_shared` is here for `protocol`, which defines the command
-# route paths this container serves and its front-ends call.
+# route paths this container serves and its front-ends call. `aqua_atif` holds
+# the ATIF trajectory models and the rules for reading ATIF files.
 COPY --chown=agent:agent ./src/ambient_quality_agent ./src/ambient_quality_agent
 COPY --chown=agent:agent ./src/ambient_quality_shared ./src/ambient_quality_shared
+COPY --chown=agent:agent ./src/aqua_atif ./src/aqua_atif
 
 # Dependencies only. Installing the project itself would make hatch build the
 # wheel described by [tool.hatch.build.targets.wheel], which is unnecessary

@@ -18,6 +18,7 @@ orchestrator tool that reports it."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -278,13 +279,41 @@ def test_show_config_reports_it(env_config: Config, jobs_store: Any) -> None:
         WATCHED,
         data_lookback_window=30,
         multi_turn_metrics=["task_success"],
+        investigation_schedule="15 8 * * *",
     )
 
-    reported = orchestrator.show_config(StateContext())["config"]
+    payload = asyncio.run(orchestrator.show_config(StateContext()))
+    reported = payload["config"]
 
     assert reported["observed_agent_name"] == WATCHED
     assert reported["data_lookback_window"] == 30
     assert reported["multi_turn_metrics"] == ["task_success"]
+    assert payload["ambient"] == {
+        "attached": True,
+        "scheduled_trigger_enabled": True,
+        "investigation_schedule": "15 8 * * *",
+        "update_trigger_enabled": False,
+        "observed_engine_id": "",
+    }
+    assert payload["ongoing_investigations"] == []
+
+
+def test_show_config_reports_null_ongoing_when_attachment_is_unreadable(
+    env_config: Config, jobs_store: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _store_agent(jobs_store, WATCHED)
+    effective_config.clear_cache()
+
+    def fail(*args: Any) -> None:
+        raise OSError("bucket unreachable")
+
+    monkeypatch.setattr(store, "get_agent_record", fail)
+
+    payload = asyncio.run(orchestrator.show_config(StateContext()))
+
+    assert "bucket unreachable" in payload["ambient"]["error"]
+    assert payload["ongoing_investigations"] is None
+    assert "bucket unreachable" in payload["ongoing_investigations_error"]
 
 
 def test_the_config_writers_are_gone() -> None:

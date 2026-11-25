@@ -35,6 +35,7 @@ from ambient_quality_agent.tools.ingestion.cloud_ops_fetcher import (
     CloudOpsFetcher,
     _decode_spans,
 )
+from ambient_quality_agent.tools.ingestion.models import IngestionCounts
 from ambient_quality_agent.tools.telemetry.schema import load_required_schema
 from ambient_quality_agent.tools.trajectories.models import IngestStatus
 from google.cloud import bigquery
@@ -893,7 +894,7 @@ def test_map_page_counts_a_whole_case_as_ingested() -> None:
         [{"trace_id": "t1", "spans": _turn_spans()}], MetricType.SINGLE_TURN
     )
 
-    assert dataclasses.astuple(fetcher.counts) == (0, 1, 0, 0)
+    assert fetcher.counts == IngestionCounts(ingested=1)
 
 
 def test_map_page_counts_a_case_built_from_some_of_its_traces_as_partial() -> (
@@ -903,7 +904,7 @@ def test_map_page_counts_a_case_built_from_some_of_its_traces_as_partial() -> (
     telemetry -- worth telling apart from one that arrived whole."""
     fetcher = _make_fetcher(mock.MagicMock())
 
-    cases, _ = fetcher._map_page(
+    cases, _, _ = fetcher._map_page(
         [
             {
                 "session_id": "sess-1",
@@ -918,20 +919,20 @@ def test_map_page_counts_a_case_built_from_some_of_its_traces_as_partial() -> (
 
     # Still evaluated, and counted apart from the intact ones.
     assert len(cases) == 1
-    assert dataclasses.astuple(fetcher.counts) == (0, 0, 1, 0)
+    assert fetcher.counts == IngestionCounts(partial=1)
 
 
 def test_map_page_counts_a_dropped_row_as_failed() -> None:
     """A row with no conversation content at all yields no case."""
     fetcher = _make_fetcher(mock.MagicMock())
 
-    cases, _ = fetcher._map_page(
+    cases, _, _ = fetcher._map_page(
         [{"trace_id": "t1", "spans": _metadata_only_spans()}],
         MetricType.SINGLE_TURN,
     )
 
     assert cases == []
-    assert dataclasses.astuple(fetcher.counts) == (0, 0, 0, 1)
+    assert fetcher.counts == IngestionCounts(failed=1)
 
 
 def test_an_unreadable_gcs_payload_makes_the_case_partial() -> None:
@@ -954,7 +955,7 @@ def test_an_unreadable_gcs_payload_makes_the_case_partial() -> None:
         ),
     ]
 
-    cases, _ = fetcher._map_page(
+    cases, _, _ = fetcher._map_page(
         [{"trace_id": "t1", "spans": spans}], MetricType.SINGLE_TURN
     )
 
@@ -1319,7 +1320,7 @@ def test_multi_turn_query_attaches_spans_by_trace_id() -> None:
     # Sourced from TargetTraces to guarantee a non-null session id when grouped
     # child spans omit conversation attributes.
     assert "t.session_id AS session_id" in sql
-    assert "ANY_VALUE" not in sql
+    assert "ANY_VALUE(s." not in sql
 
 
 @pytest.mark.parametrize(
@@ -1427,7 +1428,7 @@ def test_a_pruned_call_llm_span_adds_no_conversation_events() -> None:
     fetcher = _make_fetcher(client)
 
     def event_count(spans: list[dict[str, Any]]) -> int:
-        cases, _ = fetcher._map_page(
+        cases, _, _ = fetcher._map_page(
             [
                 {
                     "session_id": "sess-1",
@@ -1606,9 +1607,8 @@ def _targets_of(sql: str) -> str:
     Returns:
         Extracted targets CTE SQL fragment.
     """
-    return sql.split("WITH TargetSessions AS (\n", 1)[1].split(
-        "\n  ORDER BY RAND()", 1
-    )[0]
+    cte = sql.split("WITH TargetSessions AS (\n", 1)[1]
+    return cte.split("  FROM (\n", 1)[1].split("\n  )\n  ORDER BY RAND()", 1)[0]
 
 
 def _below_the_cte(sql: str) -> str:
@@ -1878,7 +1878,7 @@ def test_map_page_links_trajectory_files_in_the_recorded_and_returned_case(
         mock.MagicMock(), recorder=recorder, trajectory_file_store=store
     )
 
-    cases, _ = fetcher._map_page(
+    cases, _, _ = fetcher._map_page(
         [{"trace_id": "t1", "spans": _build_image_turn_spans()}],
         MetricType.SINGLE_TURN,
     )
@@ -1902,7 +1902,7 @@ def test_map_page_counts_a_failed_trajectory_file_write_as_partial(
         mock.MagicMock(), recorder=recorder, trajectory_file_store=store
     )
 
-    cases, _ = fetcher._map_page(
+    cases, _, _ = fetcher._map_page(
         [{"trace_id": "t1", "spans": _build_image_turn_spans()}],
         MetricType.SINGLE_TURN,
     )
@@ -1918,7 +1918,7 @@ def test_map_page_counts_a_failed_trajectory_file_write_as_partial(
 def test_map_page_without_a_trajectory_file_store_writes_placeholders() -> None:
     fetcher = _make_fetcher(mock.MagicMock())
 
-    cases, _ = fetcher._map_page(
+    cases, _, _ = fetcher._map_page(
         [{"trace_id": "t1", "spans": _build_image_turn_spans()}],
         MetricType.SINGLE_TURN,
     )

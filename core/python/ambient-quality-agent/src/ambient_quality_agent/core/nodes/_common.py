@@ -23,6 +23,7 @@ from collections.abc import Callable
 
 from ambient_quality_agent import clients, providers
 from ambient_quality_agent import config as config_module
+from ambient_quality_agent.config import DEFAULT_DATA_SAMPLING
 from ambient_quality_agent.core._memory import MemoryGuard
 from ambient_quality_agent.core.session_state import ADKStateLike, LaunchContext
 from ambient_quality_agent.core.state import add_counts
@@ -48,6 +49,7 @@ from ambient_quality_agent.tools.ingestion.cloud_logging_fetcher import (
 from ambient_quality_agent.tools.ingestion.cloud_ops_fetcher import (
     CloudOpsFetcher,
 )
+from ambient_quality_agent.tools.ingestion.sampling import SamplingMethod
 from ambient_quality_agent.tools.ingestion.trajectory_files import (
     TrajectoryFileStore,
 )
@@ -146,7 +148,8 @@ def build_fetcher(
     """Build the telemetry fetcher configured in `telemetry_ingestion_source`.
 
     Supports ``big_query`` (ADK analytics), ``cloud_ops`` (Cloud Trace linked
-    dataset), and ``cloud_logging`` (Cloud Logging GenAI export table).
+    dataset), and ``cloud_logging`` (Cloud Logging GenAI export table). It
+    samples as the state's ``data_sampling`` says.
 
     Args:
         ctx: Workflow context supplying configuration state.
@@ -187,6 +190,9 @@ def build_fetcher(
     # Fetchers default to random sampling across the time window when selector_sql is empty.
     selector_sql = state.get("selector_sql", "")
     selector_ai_model = state.get("selector_ai_model", "")
+    sampling_method = SamplingMethod(
+        state.get("data_sampling") or DEFAULT_DATA_SAMPLING
+    )
     reporting_to = (
         trajectory_recorder_factory(ctx) if recorder is None else recorder
     )
@@ -208,6 +214,7 @@ def build_fetcher(
             selector_sql=selector_sql,
             selector_ai_model=selector_ai_model,
             job_timeout_ms=job_timeout_ms,
+            sampling_method=sampling_method,
         )
     if source == "cloud_ops":
         return CloudOpsFetcher(
@@ -223,6 +230,7 @@ def build_fetcher(
             selector_sql=selector_sql,
             selector_ai_model=selector_ai_model,
             job_timeout_ms=job_timeout_ms,
+            sampling_method=sampling_method,
         )
     return CloudLoggingFetcher(
         project_id=state["project_id"],
@@ -237,6 +245,7 @@ def build_fetcher(
         selector_sql=selector_sql,
         selector_ai_model=selector_ai_model,
         job_timeout_ms=job_timeout_ms,
+        sampling_method=sampling_method,
     )
 
 

@@ -22,6 +22,7 @@ counted once -- are properties of the sweep and not of any producer.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import json
 import logging
@@ -31,7 +32,16 @@ from typing import Any
 from unittest import mock
 
 import pytest
-from ambient_quality_agent.core.nodes import _common, _stage, _sweep
+from agentplatform._genai.types import EvaluationDataset
+from agentplatform._genai.types.evals import AgentConfig
+from ambient_quality_agent.core.nodes import (
+    _code_metrics,
+    _common,
+    _stage,
+    _sweep,
+    review,
+)
+from ambient_quality_agent.tools.documents.goal import InvestigationGoal
 from ambient_quality_agent.tools.evaluation.results import (
     ERRORED,
     FAILED,
@@ -39,7 +49,20 @@ from ambient_quality_agent.tools.evaluation.results import (
 )
 from ambient_quality_agent.tools.ingestion import selector
 from ambient_quality_agent.tools.ingestion.base import AGENT_COUNT_LIMIT
-from ambient_quality_agent.tools.ingestion.models import IngestionCounts, Page
+from ambient_quality_agent.tools.ingestion.models import (
+    IngestionCounts,
+    Page,
+    SamplingRecord,
+)
+from ambient_quality_agent.tools.insights.findings import Finding
+from ambient_quality_agent.tools.investigations.models import (
+    InvestigationCounters,
+)
+from ambient_quality_agent.tools.metrics.library import (
+    CodeMetric,
+    MetricLibrary,
+)
+from ambient_quality_agent.tools.review import agentic_reviewer
 
 from .conftest import (
     FakeReviewCall,
@@ -93,6 +116,7 @@ class _Fetcher:
 
     def submit_query(self, **kwargs: Any) -> str:
         self.submitted += 1
+        self.submitted_with = kwargs
         return "exec-1"
 
     def fetch_page(self, **kwargs: Any) -> Page:
@@ -115,6 +139,7 @@ class _Recorder:
         self.outcomes: dict[str, str] = {}
         self.findings_count = 0
         self.rubrics_count = 0
+        self.pending_count = 0
 
     def evaluate(self, state: Any, page: Page) -> None:
         self.pages.append(page)
@@ -237,6 +262,93 @@ def test_one_failing_evaluation_does_not_discard_the_others_work(
         _sweep.run_sweep(ctx, [broken, healthy], node_name="sweep", budget=100)
 
     assert healthy.finished, "the healthy evaluation was never finished"
+
+
+def test_cancelling_inside_finish_propagates_without_logging_a_failure(
+    ctx: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Cancelling while a cross-page evaluation drains in `finish` stops the
+    sweep cleanly without logging an evaluation failure or running peers."""
+    _wire(monkeypatch, _pages(2))
+    cancelled = _Recorder(
+        "review",
+        fail_on_finish=_stage.InvestigationCancelledError("r1 was cancelled"),
+    )
+    later = _Recorder("later")
+
+    with (
+        caplog.at_level(logging.ERROR),
+        pytest.raises(_stage.InvestigationCancelledError),
+    ):
+        _sweep.run_sweep(ctx, [cancelled, later], node_name="sweep", budget=100)
+
+    assert not later.finished
+    assert caplog.records == []
+
+
+class _Deferred(_Recorder):
+    """An `Evaluation` whose verdicts and counts arrive in `finish`."""
+
+    def finish(self, state: Any) -> None:
+        super().finish(state)
+        self.outcomes = {"s0-0": PASSED, "s0-1": FAILED, "s0-2": ERRORED}
+        self.findings_count = 2
+        self.rubrics_count = 5
+
+
+def test_outcomes_recorded_in_finish_are_counted(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An evaluation that runs across pages completes its remaining work in
+    `finish`, so the sweep totals outcomes and counts after `finish` returns."""
+    _wire(monkeypatch, _pages(3))
+
+    _sweep.run_sweep(
+        ctx, [_Deferred("deferred")], node_name="sweep", budget=100
+    )
+
+    counters = ctx.state["counters"]
+    assert {
+        name: counters[name]
+        for name in (
+            "trajectories_evaluated",
+            "trajectories_eval_passed",
+            "trajectories_eval_failed",
+            "trajectories_eval_errored",
+            "findings_generated",
+            "rubrics_generated",
+        )
+    } == {
+        "trajectories_evaluated": 3,
+        "trajectories_eval_passed": 1,
+        "trajectories_eval_failed": 1,
+        "trajectories_eval_errored": 1,
+        "findings_generated": 2,
+        "rubrics_generated": 5,
+    }
+
+
+def test_a_failing_finish_still_counts_what_its_peer_recorded_in_finish(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every evaluation finishes and has its totals written before the first
+    `finish` failure is raised."""
+    _wire(monkeypatch, _pages(3))
+    broken = _Recorder(
+        "broken", fail_on_finish=RuntimeError("reviewer is down")
+    )
+    healthy = _Deferred("healthy")
+
+    with pytest.raises(RuntimeError, match="reviewer is down"):
+        _sweep.run_sweep(ctx, [broken, healthy], node_name="sweep", budget=100)
+
+    counters = ctx.state["counters"]
+    assert counters["trajectories_eval_failed"] == 1
+    assert counters["findings_generated"] == 2
+    assert counters["rubrics_generated"] == 5
+    assert ctx.state["multi_turn_pages_evaluated"] == 1
 
 
 def test_an_empty_window_skips_without_finishing_anything(
@@ -506,6 +618,147 @@ def test_ingestion_is_recorded_once_however_many_evaluations_read_it(
     )
 
 
+def _build_weighted_page(probabilities: dict[str, tuple[float, float]]) -> Page:
+    """Builds one page whose cases carry sampling records.
+
+    Args:
+        probabilities: ``(inclusion_probability, weight)`` per case id.
+
+    Returns:
+        The page.
+    """
+    return make_page(
+        [make_agent_case(case_id) for case_id in probabilities],
+        sampling={
+            case_id: SamplingRecord(inclusion_probability=p, weight=weight)
+            for case_id, (p, weight) in probabilities.items()
+        },
+    )
+
+
+def test_a_weighted_sample_is_counted_back_up_to_the_window(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each trajectory stands for 1 / p trajectories of the window, 2, 10 and
+    4 here, scaled so that they sum to the window's 32."""
+    _wire(
+        monkeypatch,
+        [
+            _build_weighted_page(
+                {"a": (0.5, 5.0), "b": (0.1, 1.0), "c": (0.25, 2.0)}
+            )
+        ],
+        scanned=32,
+    )
+    judge = _Recorder("judge")
+    judge.outcomes = {"a": FAILED, "b": PASSED, "c": PASSED}
+
+    _sweep.run_sweep(ctx, [judge], node_name="sweep", budget=100)
+
+    counters = ctx.state["counters"]
+    assert counters["estimated_trajectories_eval_passed"] == 28
+    assert counters["estimated_trajectories_eval_failed"] == 4
+    assert counters["trajectories_evaluated_with_risk_signals"] == 2
+    assert InvestigationCounters.model_validate(counters).has_estimates
+    # Kept for insight correlation, which estimates each cluster the same way.
+    assert ctx.state["trajectories_represented"] == {
+        "a": 4.0,
+        "b": 20.0,
+        "c": 8.0,
+    }
+
+
+def test_a_window_that_could_not_be_counted_keeps_the_unscaled_estimates(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _wire(
+        monkeypatch,
+        [
+            _build_weighted_page(
+                {"a": (0.5, 5.0), "b": (0.1, 1.0), "c": (0.25, 2.0)}
+            )
+        ],
+        count_raises=True,
+    )
+    judge = _Recorder("judge")
+    judge.outcomes = {"a": FAILED, "b": PASSED, "c": PASSED}
+
+    _sweep.run_sweep(ctx, [judge], node_name="sweep", budget=100)
+
+    counters = ctx.state["counters"]
+    assert counters["estimated_trajectories_eval_passed"] == 14
+    assert counters["estimated_trajectories_eval_failed"] == 2
+
+
+def test_unreadable_picks_are_stood_for_by_the_rest_of_the_sample() -> None:
+    """Two of four uniform picks of a 40-trajectory window could be read: the
+    other two stand for the whole window, not half of it."""
+    samplings = {
+        key: SamplingRecord(inclusion_probability=0.1) for key in ("a", "b")
+    }
+
+    represented = _sweep.compute_trajectories_represented(samplings, 40)
+
+    assert represented == {"a": 20.0, "b": 20.0}
+
+
+def test_an_investigation_reviewing_both_units_records_no_estimates(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sessions and turns are different units: adding their estimates would
+    count neither population."""
+    ctx.state.update(
+        quality_analysis_mode="eval_service", single_turn_metrics=["m"]
+    )
+    _wire(
+        monkeypatch, [_build_weighted_page({"a": (0.5, 5.0), "b": (0.1, 1.0)})]
+    )
+    judge = _Recorder("sessions")
+    judge.outcomes = {"a": FAILED, "b": PASSED}
+
+    _sweep.run_sweep(ctx, [judge], node_name="multi", budget=9)
+
+    counters = ctx.state["counters"]
+    assert "estimated_trajectories_eval_passed" not in counters
+    assert not InvestigationCounters.model_validate(counters).has_estimates
+
+
+def test_a_sample_with_an_unknown_probability_estimates_nothing(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Leaving one trajectory out would read as a smaller window."""
+    page = _build_weighted_page({"a": (0.5, 5.0)})
+    page = dataclasses.replace(
+        page,
+        dataset=EvaluationDataset(
+            eval_cases=[*page.dataset.eval_cases, make_agent_case("b")]
+        ),
+    )
+    _wire(monkeypatch, [page])
+    judge = _Recorder("judge")
+    judge.outcomes = {"a": FAILED, "b": PASSED}
+
+    _sweep.run_sweep(ctx, [judge], node_name="sweep", budget=100)
+
+    counters = ctx.state["counters"]
+    assert "estimated_trajectories_eval_passed" not in counters
+    assert counters["trajectories_evaluated_with_risk_signals"] == 1
+    assert not InvestigationCounters.model_validate(counters).has_estimates
+
+
+def test_a_job_seeds_its_sample_with_its_task_attempt(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fetcher = _wire(monkeypatch, _pages(1))
+    ctx.state.update(
+        investigation_id="investigation-1", sampling_seed="investigation-1:2"
+    )
+
+    _sweep.run_sweep(ctx, [_Recorder("one")], node_name="sweep", budget=100)
+
+    assert fetcher.submitted_with["sampling_seed"] == "investigation-1:2"
+
+
 def _analyzer(
     outcomes: dict[str, str], *, findings: int = 0, rubrics: int = 0
 ) -> Any:
@@ -577,16 +830,8 @@ def test_analyzers_key_the_same_case_the_same_way() -> None:
         EvaluationResult,
         ResponseCandidateResult,
     )
-    from ambient_quality_agent.core.nodes import (
-        _code_metrics,
-        _remote_code_metrics,
-        review,
-    )
-    from ambient_quality_agent.tools.documents.goal import InvestigationGoal
-    from ambient_quality_agent.tools.metrics.library import (
-        CodeMetric,
-        RemoteCodeMetric,
-    )
+    from ambient_quality_agent.core.nodes import _remote_code_metrics
+    from ambient_quality_agent.tools.metrics.library import RemoteCodeMetric
 
     cases = [make_agent_case("s1"), make_agent_case("s2"), make_agent_case("")]
     page = make_page(cases)
@@ -637,6 +882,7 @@ def test_analyzers_key_the_same_case_the_same_way() -> None:
 
     state: dict[str, Any] = {}
     reviewer.evaluate(state, page)
+    reviewer.finish(state)
     metrics.evaluate(state, page)
     remote_metrics.evaluate(state, page)
 
@@ -675,6 +921,218 @@ def test_local_and_remote_metrics_both_reach_the_breakdown() -> None:
         "local_one": "local",
         "remote_one": "remote",
     }
+
+
+# --- what a session review over several pages records --------------------- #
+
+
+def _review_by_text(
+    eval_case: Any, _revisions: Any, **_scope: Any
+) -> list[Finding]:
+    """Review a session by what its agent said.
+
+    Keeps no state, because the node runs it on several threads at once.
+
+    Args:
+        eval_case: A session built by `make_agent_case`.
+        _revisions: Unused.
+        **_scope: Unused.
+
+    Returns:
+        One finding when the agent said "review-fails", otherwise none.
+
+    Raises:
+        UnparsableReplyError: When the agent said "review-errors".
+    """
+    text = eval_case.agent_data.turns[0].events[0].content.parts[0].text
+    if text == "review-errors":
+        raise agentic_reviewer.UnparsableReplyError("prose")
+    if text != "review-fails":
+        return []
+    return [
+        Finding(
+            expected_behavior="Book the flight.",
+            actual_behavior="Made no tool call.",
+            trajectory_id=eval_case.eval_case_id,
+        )
+    ]
+
+
+def _score_by_text(instance: dict[str, Any]) -> dict[str, Any]:
+    """Score a session by what its agent said.
+
+    Args:
+        instance: The session as `runner.build_instance` shapes it.
+
+    Returns:
+        A failing score when the agent said "metric-fails", otherwise a
+        passing one.
+    """
+    if instance["response"]["parts"][0]["text"] == "metric-fails":
+        return {"score": 0.0, "explanation": "Said metric-fails."}
+    return {"score": 1.0}
+
+
+def _build_turns(text: str) -> list[dict[str, Any]]:
+    """Build the turns a `make_agent_case` session serializes to.
+
+    Args:
+        text: What the agent said.
+
+    Returns:
+        The session's one turn, as `FindingSet.turns_by_trajectory` holds it.
+    """
+    return [
+        {
+            "turn_index": 0,
+            "turn_id": "t0",
+            "events": [
+                {
+                    "author": "agent",
+                    "content": {"parts": [{"text": text}], "role": "model"},
+                }
+            ],
+        }
+    ]
+
+
+def test_a_review_over_two_pages_records_each_page_in_order(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Everything a session review beside a code metric leaves behind for a
+    window of two pages: the finding sets and their order, the verdict on each
+    session, the counters and the summary lines.
+
+    Reviews run on a pool and finish in any order, and clustering addresses a
+    finding by its position once the sets are merged in list order, so none of
+    this may depend on which review finishes first. The second page opens with
+    a session that has no id: its key continues the count from the first page.
+    """
+    configured = make_agent_case("s2", "review-fails")
+    assert configured.agent_data is not None
+    configured.agent_data.agents = {
+        "agent": AgentConfig(agent_id="agent", instruction="Book the flight.")
+    }
+    pages = [
+        make_page(
+            [
+                make_agent_case("s1", "clean"),
+                configured,
+                make_agent_case("", "review-fails"),
+            ],
+            next_page_token="1",
+            revisions={"s2": "7"},
+        ),
+        make_page(
+            [
+                make_agent_case("", "clean"),
+                make_agent_case("s5", "metric-fails"),
+                make_agent_case("s6", "review-errors"),
+                make_agent_case("s7", "review-fails"),
+            ]
+        ),
+    ]
+    _wire(monkeypatch, pages)
+    reviewer = review.ReviewEvaluation(_review_by_text, InvestigationGoal())
+    metrics = _code_metrics.CodeMetricEvaluation(
+        MetricLibrary(
+            {
+                "says_nothing_wrong": CodeMetric(
+                    name="says_nothing_wrong",
+                    expected="The agent says nothing wrong.",
+                    evaluate=_score_by_text,
+                )
+            }
+        )
+    )
+
+    lines = _sweep.run_sweep(
+        ctx, [reviewer, metrics], node_name="review", budget=100
+    )
+
+    reviewed = {
+        "expected_behavior": "Book the flight.",
+        "actual_behavior": "Made no tool call.",
+        "agent_id": "",
+    }
+    assert ctx.state["finding_sets"] == [
+        # First page, session review.
+        {
+            "findings": [
+                {**reviewed, "trajectory_id": "s2", "agent_revision": "7"},
+                {**reviewed, "trajectory_id": "", "agent_revision": ""},
+            ],
+            "turns_by_trajectory": {"s2": _build_turns("review-fails")},
+            "agent_revisions": {
+                "s2": [
+                    {
+                        "agent_id": "agent",
+                        "revision_id": "7",
+                        "instruction": "Book the flight.",
+                        "tools": [],
+                    }
+                ]
+            },
+        },
+        # First page, code metric.
+        {"findings": [], "turns_by_trajectory": {}, "agent_revisions": {}},
+        # Second page, session review.
+        {
+            "findings": [
+                {**reviewed, "trajectory_id": "s7", "agent_revision": ""}
+            ],
+            "turns_by_trajectory": {"s7": _build_turns("review-fails")},
+            "agent_revisions": {},
+        },
+        # Second page, code metric.
+        {
+            "findings": [
+                {
+                    "expected_behavior": "The agent says nothing wrong.",
+                    "actual_behavior": "Said metric-fails.",
+                    "trajectory_id": "s5",
+                    "agent_id": "",
+                    "agent_revision": "",
+                }
+            ],
+            "turns_by_trajectory": {"s5": _build_turns("metric-fails")},
+            "agent_revisions": {},
+        },
+    ]
+    assert reviewer.outcomes == {
+        "s1": PASSED,
+        "s2": FAILED,
+        "#3": FAILED,
+        "#4": PASSED,
+        "s5": PASSED,
+        "s6": ERRORED,
+        "s7": FAILED,
+    }
+    counters = ctx.state["counters"]
+    assert {
+        name: counters[name]
+        for name in (
+            "trajectories_evaluated",
+            "trajectories_eval_passed",
+            "trajectories_eval_failed",
+            "trajectories_eval_errored",
+            "findings_generated",
+            "rubrics_generated",
+        )
+    } == {
+        "trajectories_evaluated": 7,
+        # The metric fails `s5`, which the review passed.
+        "trajectories_eval_passed": 2,
+        "trajectories_eval_failed": 4,
+        "trajectories_eval_errored": 1,
+        "findings_generated": 4,
+        "rubrics_generated": 0,
+    }
+    assert ctx.state["multi_turn_pages_evaluated"] == 2
+    assert lines == [
+        "**Session review:** 7 session(s) reviewed, 3 finding(s).",
+        "7 session(s) scored against 1 metric(s), 1 finding(s).",
+    ]
 
 
 # --- a selector-backed sweep re-validates its own SQL ---------------------- #
@@ -794,6 +1252,76 @@ def test_the_sweep_reports_how_far_it_got_after_every_page(
     # Progress rows are for the live view only: the run's summary, which the
     # chat reads back, keeps to what the nodes reported.
     assert "progress_log" not in ctx.state
+
+
+def test_a_session_still_owed_by_an_evaluation_is_not_counted_until_finished(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch, investigation_store: Any
+) -> None:
+    """An evaluation that runs across pages returns from `evaluate` with
+    sessions still in flight. Even beside a synchronous peer whose
+    `pending_count` is zero, a stage row counts only sessions no evaluation
+    still owes, and writes the final total once `finish` completes them."""
+    _wire(monkeypatch, _pages(3, 2), scanned=7)
+    ctx.state["investigation_id"] = "investigation-1"
+
+    class _Lagging(_Recorder):
+        def evaluate(self, state: Any, page: Page) -> None:
+            super().evaluate(state, page)
+            if len(self.pages) == 1:
+                self.pending_count = 2
+                self.findings_count = 1
+            else:
+                self.pending_count = 1
+                self.findings_count = 2
+
+        def finish(self, state: Any) -> None:
+            super().finish(state)
+            self.pending_count = 0
+            self.findings_count = 3
+
+    _sweep.run_sweep(
+        ctx,
+        [_Lagging("review"), _Finder("sync")],
+        node_name="review",
+        budget=100,
+        progress=_sweep.SweepProgress(ctx.state, "Session review"),
+    )
+
+    assert _stages(investigation_store) == [
+        _review(0, 0),
+        _review(1, 2),
+        _review(4, 4),
+        _review(5, 5),
+    ]
+
+
+def test_a_failing_finish_writes_no_completed_stage_row(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch, investigation_store: Any
+) -> None:
+    """When `finish` fails with sessions still owed, the sweep does not write a
+    final stage row claiming every session was evaluated."""
+    _wire(monkeypatch, _pages(3), scanned=7)
+    ctx.state["investigation_id"] = "investigation-1"
+
+    class _BrokenLagging(_Recorder):
+        def evaluate(self, state: Any, page: Page) -> None:
+            super().evaluate(state, page)
+            self.pending_count = 2
+
+    with pytest.raises(RuntimeError, match="reviewer is down"):
+        _sweep.run_sweep(
+            ctx,
+            [
+                _BrokenLagging(
+                    "review", fail_on_finish=RuntimeError("reviewer is down")
+                )
+            ],
+            node_name="review",
+            budget=100,
+            progress=_sweep.SweepProgress(ctx.state, "Session review"),
+        )
+
+    assert _stages(investigation_store) == [_review(0, 0), _review(1, 0)]
 
 
 @pytest.mark.parametrize(
@@ -938,17 +1466,54 @@ def test_a_page_judged_in_one_call_keeps_its_row_alive(
     ]
 
 
+def test_finishing_an_evaluation_keeps_the_newest_row_alive(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch, investigation_store: Any
+) -> None:
+    """An evaluation that waits for in-flight work in `finish` can block past
+    an interval after the last page has been fetched, so `finish` keeps the
+    newest row alive too."""
+    clock = _Clock()
+    monkeypatch.setattr(_stage.time, "monotonic", clock)
+    monkeypatch.setattr(_stage, "_KEEP_ALIVE_CHECK_SECONDS", 0.01)
+    _wire(monkeypatch, _pages(3), scanned=7)
+    ctx.state["investigation_id"] = "investigation-1"
+
+    class _SlowFinish(_Recorder):
+        def finish(self, state: Any) -> None:
+            super().finish(state)
+            clock.now += _stage.PROGRESS_INTERVAL_SECONDS
+            deadline = time.perf_counter() + 5
+            while len(investigation_store.event_rows) < 3:
+                assert time.perf_counter() < deadline, "no row was kept alive"
+                time.sleep(0.01)
+
+    _sweep.run_sweep(
+        ctx,
+        [_SlowFinish("review")],
+        node_name="review",
+        budget=100,
+        progress=_sweep.SweepProgress(ctx.state, "Session review"),
+    )
+
+    assert _stages(investigation_store) == [
+        _review(0, 0),
+        _review(3, 0),
+        _review(3, 0),
+    ]
+
+
 def test_session_review_reports_after_each_session_it_reviews() -> None:
     """The review is the long part of an investigation and takes a page's
     sessions eight at a time, so it says how far it got after each one."""
-    from ambient_quality_agent.core.nodes import review
-    from ambient_quality_agent.tools.documents.goal import InvestigationGoal
-
     reports: list[tuple[int, int]] = []
     threads: set[int] = set()
+    done_before_call = 0
+    findings_before_call = 0
 
     def on_reviewed(judged: int, findings: int) -> None:
-        reports.append((judged, findings))
+        reports.append(
+            (done_before_call + judged, findings_before_call + findings)
+        )
         threads.add(threading.get_ident())
 
     evaluation = review.ReviewEvaluation(
@@ -962,12 +1527,147 @@ def test_session_review_reports_after_each_session_it_reviews() -> None:
         on_reviewed=on_reviewed,
     )
 
+    state: dict[str, Any] = {}
     evaluation.evaluate(
-        {}, make_page([make_agent_case(f"s{n}") for n in range(3)])
+        state, make_page([make_agent_case(f"s{n}") for n in range(3)])
     )
+    done_before_call = 3 - evaluation.pending_count
+    findings_before_call = evaluation.findings_count
+    evaluation.finish(state)
 
     assert reports == [(1, 1), (2, 2), (3, 3)]
     # The reviews run on a pool, but the reports come back on the node's own
     # thread, so `SweepProgress` needs no lock of its own for its counts.
     assert threads == {threading.get_ident()}
     assert evaluation.findings_count == 3
+
+
+def test_a_slow_session_on_one_page_does_not_block_reviewing_the_next_page(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression test for b/582663438: a slow session on page 0 stays in
+    flight while page 1 is fetched and reviewed, and `finding_sets` still
+    records page 0 before page 1."""
+    p0_slow_started = threading.Event()
+    p1_finished = threading.Event()
+
+    def review_across_pages(
+        eval_case: Any, _revisions: Any, **_scope: Any
+    ) -> list[Finding]:
+        case_id = eval_case.eval_case_id
+        if case_id == "p0-slow":
+            p0_slow_started.set()
+            assert p1_finished.wait(timeout=5), (
+                "page 1 was blocked behind page 0"
+            )
+        elif case_id == "p1-fast":
+            assert p0_slow_started.wait(timeout=5)
+            p1_finished.set()
+        return [
+            Finding(
+                expected_behavior="Book the flight.",
+                actual_behavior=f"Missed {case_id}.",
+                trajectory_id=case_id,
+            )
+        ]
+
+    pages = [
+        make_page(
+            [make_agent_case("p0-slow"), make_agent_case("p0-fast")],
+            next_page_token="1",
+        ),
+        make_page([make_agent_case("p1-fast", "metric-fails")]),
+    ]
+    _wire(monkeypatch, pages)
+    reviewer = review.ReviewEvaluation(review_across_pages, InvestigationGoal())
+    metrics = _code_metrics.CodeMetricEvaluation(
+        MetricLibrary(
+            {
+                "says_nothing_wrong": CodeMetric(
+                    name="says_nothing_wrong",
+                    expected="The agent says nothing wrong.",
+                    evaluate=_score_by_text,
+                )
+            }
+        )
+    )
+
+    _sweep.run_sweep(ctx, [reviewer, metrics], node_name="review", budget=100)
+
+    assert [
+        [f["trajectory_id"] for f in finding_set["findings"]]
+        for finding_set in ctx.state["finding_sets"]
+    ] == [["p0-slow", "p0-fast"], [], ["p1-fast"], ["p1-fast"]]
+
+
+def test_live_progress_stays_monotonic_across_overlapping_pages(
+    ctx: Any, monkeypatch: pytest.MonkeyPatch, investigation_store: Any
+) -> None:
+    """When page 0's slow session finishes after page 1's reviews are already
+    in flight, stage rows never count an owed session and advance monotonically
+    to the final total."""
+    monkeypatch.setattr(review, "REVIEW_CONCURRENCY", 2)
+    clock = _Clock()
+    monkeypatch.setattr(_stage.time, "monotonic", clock)
+    p0_slow_started = threading.Event()
+    p1_started = threading.Event()
+
+    def review_across_pages(
+        eval_case: Any, _revisions: Any, **_scope: Any
+    ) -> list[Finding]:
+        case_id = eval_case.eval_case_id
+        if case_id == "p0-slow":
+            p0_slow_started.set()
+            assert p1_started.wait(timeout=5)
+        elif case_id == "p1-a":
+            assert p0_slow_started.wait(timeout=5)
+            p1_started.set()
+        return [
+            Finding(
+                expected_behavior="Book the flight.",
+                actual_behavior=f"Missed {case_id}.",
+                trajectory_id=case_id,
+            )
+        ]
+
+    _wire(
+        monkeypatch,
+        [
+            make_page(
+                [make_agent_case("p0-slow"), make_agent_case("p0-fast")],
+                next_page_token="1",
+            ),
+            make_page([make_agent_case("p1-a"), make_agent_case("p1-b")]),
+        ],
+        scanned=4,
+    )
+    ctx.state["investigation_id"] = "investigation-1"
+    progress = _sweep.SweepProgress(ctx.state, "Session review")
+
+    def advance_each_interval(judged: int, findings: int) -> None:
+        clock.now += _stage.PROGRESS_INTERVAL_SECONDS
+        progress.advance(judged, findings)
+
+    reviewer = review.ReviewEvaluation(
+        review_across_pages,
+        InvestigationGoal(),
+        on_reviewed=advance_each_interval,
+    )
+
+    _sweep.run_sweep(
+        ctx,
+        [reviewer],
+        node_name="review",
+        budget=100,
+        progress=progress,
+    )
+
+    rows = _stages(investigation_store)
+    evaluated = [row["evaluated"] for row in rows]
+    findings = [row["findings"] for row in rows]
+    assert evaluated[0] == 0
+    assert evaluated[-1] == 4
+    assert findings[-1] == 4
+    assert evaluated == sorted(evaluated)
+    assert findings == sorted(findings)
+    assert all(row["evaluated"] <= 4 for row in rows)

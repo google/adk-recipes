@@ -42,6 +42,7 @@ import { Funnel } from "@/components/stats/funnel";
 import { InsightTrend } from "@/components/stats/insight-trend";
 import { TrajectoriesPerDay } from "@/components/stats/trajectories-per-day";
 import { DASHBOARD_DAYS, HORIZON_LABEL } from "@/lib/day-buckets";
+import { formatInsightReach, SHARE_HELP } from "@/lib/estimates";
 import type { ListPage } from "@/lib/funnel";
 import { buildTrend, resolvedNote } from "@/lib/insight-trend";
 import { newestFirst } from "@/lib/investigation-state";
@@ -67,7 +68,7 @@ const TOP_ISSUES = 5;
 const STRIP_VIEWS = {
   top: {
     title: "Top insights",
-    subtitle: "Most trajectories affected first",
+    subtitle: "Most conversations affected first, estimated for all traffic",
     query: { orderBy: "impact" },
   },
   latest: {
@@ -101,7 +102,9 @@ export const CHART_HELP = {
     "Each column is one day's trajectories sent for evaluation, from the " +
     "investigations whose window ended that day (UTC), filled with failed on " +
     "top of passed. Eval service errors and trajectories with no outcome are " +
-    "not drawn; they leave the top of the column unfilled. Hatched: no " +
+    "not drawn; they leave the top of the column unfilled. These are the " +
+    "reviewed samples, which can pick risky conversations more often, so " +
+    "their failed share can run above that of all traffic. Hatched: no " +
     "trajectories evaluated.",
   /** `autoResolveDays` is the deployment's window, or null to name it generically. */
   insightTrend: (autoResolveDays: number | null) =>
@@ -472,11 +475,17 @@ export function HomeView() {
                       <p className={textStyle.itemTitle}>
                         <InlineMarkdown text={i.label} />
                       </p>
-                      <span className={cn(textStyle.meta, "shrink-0")}>
-                        {i.trajectory_count}{" "}
-                        {i.trajectory_count === 1
-                          ? "trajectory"
-                          : "trajectories"}
+                      <span
+                        className={cn(textStyle.meta, "shrink-0")}
+                        title={
+                          i.estimated_share != null ? SHARE_HELP : undefined
+                        }
+                      >
+                        {formatInsightReach(
+                          String(i.trajectory_count),
+                          i.estimated_share,
+                          i.trajectory_count,
+                        )}
                       </span>
                     </div>
                     {i.diagnosis && (

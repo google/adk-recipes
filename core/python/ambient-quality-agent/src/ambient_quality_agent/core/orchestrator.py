@@ -209,8 +209,9 @@ what you can do, introduce these abilities:
    filterable by status or run) and `get_insight` (one issue's occurrences,
    failing-rubric evidence, and any root cause already recorded against it).
 4. **Report the configuration** you are running under — multi/single-turn
-   metrics, the data lookback window (days), and the evaluation cap — via
-   `show_config`. You cannot change it; it is set when the agent is attached.
+   metrics, the data lookback window (days), the evaluation cap, ambient
+   schedule/trigger status, and any ongoing investigations — via `show_config`.
+   You cannot change it; it is set when the agent is attached.
 
 Behavior rules:
 - To start an investigation, call `schedule_investigation`. It returns

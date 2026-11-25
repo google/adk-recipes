@@ -31,6 +31,11 @@ import {
   resolveNewestInvestigation,
   runButtonLabel,
   listStalledInvestigations,
+  SCHEDULED_GRACE_MS,
+  renderOngoingNote,
+  isScheduledActive,
+  listOngoingInvestigations,
+  listScheduledInvestigations,
   type InvestigationLike,
 } from "@/lib/investigation-state";
 
@@ -238,5 +243,68 @@ describe("what it says", () => {
     // The fill's duration is set from this constant rather than restated in
     // CSS, so the bar cannot lie about when the list is next read.
     expect(POLL_INTERVAL_MS).toBe(30000);
+  });
+});
+
+describe("scheduled and ongoing investigations", () => {
+  test("a scheduled investigation is active until SCHEDULED_GRACE_MS past due_at", () => {
+    const upcoming = {
+      investigation_id: "s1",
+      status: "scheduled",
+      due_at: new Date(NOW + 15 * 60_000).toISOString(),
+    };
+    const withinGrace = {
+      investigation_id: "s2",
+      status: "scheduled",
+      due_at: new Date(NOW - SCHEDULED_GRACE_MS + 60_000).toISOString(),
+    };
+    const overdue = {
+      investigation_id: "s3",
+      status: "scheduled",
+      due_at: new Date(NOW - SCHEDULED_GRACE_MS - 60_000).toISOString(),
+    };
+    expect(isScheduledActive(upcoming, NOW)).toBe(true);
+    expect(isScheduledActive(withinGrace, NOW)).toBe(true);
+    expect(isScheduledActive(overdue, NOW)).toBe(false);
+    expect(
+      listScheduledInvestigations([upcoming, overdue], NOW).map(
+        (r) => r.investigation_id,
+      ),
+    ).toEqual(["s1"]);
+  });
+
+  test("listOngoingInvestigations combines non-stale in-flight and active scheduled runs", () => {
+    const running = buildInvestigation("running", 2);
+    const stale = buildInvestigation("pending", 90);
+    const scheduled = {
+      investigation_id: "sched-1",
+      status: "scheduled",
+      created_at: new Date(NOW - 60_000).toISOString(),
+      due_at: new Date(NOW + 10 * 60_000).toISOString(),
+    };
+    expect(
+      listOngoingInvestigations([stale, running, scheduled], NOW).map(
+        (r) => r.investigation_id,
+      ),
+    ).toEqual(["sched-1", running.investigation_id]);
+  });
+
+  test("renderOngoingNote phrases running and scheduled combinations without re-filtering by client clock", () => {
+    const running = buildInvestigation("running", 999);
+    const scheduled = {
+      investigation_id: "sched-1",
+      status: "scheduled",
+      due_at: "2026-10-14T12:15:00Z",
+    };
+    expect(renderOngoingNote([], () => "12:15 PM")).toBeNull();
+    expect(renderOngoingNote([running], () => "12:15 PM")).toBe(
+      "1 investigation running",
+    );
+    expect(renderOngoingNote([scheduled], () => "Oct 14, 12:15 PM")).toBe(
+      "Scheduled for Oct 14, 12:15 PM",
+    );
+    expect(
+      renderOngoingNote([running, scheduled], () => "Oct 14, 12:15 PM"),
+    ).toBe("1 investigation running, 1 scheduled");
   });
 });

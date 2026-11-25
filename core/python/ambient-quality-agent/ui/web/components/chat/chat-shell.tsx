@@ -83,6 +83,10 @@ import {
   PanelRightClose,
   PanelRightOpen,
   type LucideIcon,
+  Download,
+  Folder,
+  MessageSquarePlus,
+  Pencil,
 } from "lucide-react";
 
 import { textStyle } from "@/lib/typography";
@@ -110,10 +114,14 @@ import { BusyProvider } from "./busy-context";
 import { NowProvider } from "@/lib/now-context";
 import { DormantActionsGate } from "./dormant-actions";
 import { Wordmark } from "@/components/brand/wordmark";
-import { CommandPalette } from "./command-palette";
 import { FindBar } from "./find-bar";
 import { ImageLightboxProvider } from "./image-lightbox";
 import { focusComposer } from "@/lib/composer-focus";
+import {
+  isCommandPaletteOpen,
+  type PaletteCommand,
+  useRegisterPaletteCommands,
+} from "@/lib/command-palette";
 import { downloadConversation } from "@/lib/export-conversation";
 import { notify } from "@/lib/toast";
 import { loadDraft, saveDraft } from "@/lib/draft-store";
@@ -538,9 +546,6 @@ export function ChatShell({
     }
   }, [contextIdProp, trimmedInitialMessage, navigate, selectedKey]);
 
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const paletteOpenRef = useRef(false);
-  paletteOpenRef.current = paletteOpen;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const meta = e.metaKey || e.ctrlKey;
@@ -552,11 +557,6 @@ export function ChatShell({
           target.tagName === "TEXTAREA" ||
           target.isContentEditable);
 
-      if (meta && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setPaletteOpen((v) => !v);
-        return;
-      }
       if (meta && e.key.toLowerCase() === "f") {
         e.preventDefault();
         setFindOpen(true);
@@ -585,7 +585,7 @@ export function ChatShell({
         focusComposer();
         return;
       }
-      if (e.key === "/" && !meta && !inEditable && !paletteOpenRef.current) {
+      if (e.key === "/" && !meta && !inEditable && !isCommandPaletteOpen()) {
         e.preventDefault();
         focusComposer();
         return;
@@ -919,6 +919,56 @@ export function ChatShell({
     },
     [displayMessages, activeSession],
   );
+
+  // The chat's commands in the global palette: its actions, and the other
+  // chats to switch to.
+  const canExport = displayMessages.length > 0;
+  const paletteCommands = useMemo<PaletteCommand[]>(() => {
+    const commands: PaletteCommand[] = [
+      {
+        id: "action:new-chat",
+        label: "New chat",
+        hint: "⌘N",
+        Icon: MessageSquarePlus,
+        onSelect: onNewChat,
+      },
+      {
+        id: "action:focus-composer",
+        label: "Focus message input",
+        hint: "/",
+        Icon: Pencil,
+        onSelect: () => requestAnimationFrame(focusComposer),
+      },
+    ];
+    if (canExport) {
+      commands.push(
+        {
+          id: "action:export-markdown",
+          label: "Export chat as Markdown",
+          Icon: Download,
+          onSelect: () => handleExport("markdown"),
+        },
+        {
+          id: "action:export-json",
+          label: "Export chat as JSON",
+          Icon: Download,
+          onSelect: () => handleExport("json"),
+        },
+      );
+    }
+    for (const session of sessions ?? []) {
+      if (session.id === contextId) continue;
+      commands.push({
+        id: `session:${session.id}`,
+        label: session.title,
+        Icon: Folder,
+        group: "chats",
+        onSelect: () => navigate({ to: "/c", search: { id: session.id } }),
+      });
+    }
+    return commands;
+  }, [onNewChat, canExport, handleExport, sessions, contextId, navigate]);
+  useRegisterPaletteCommands(paletteCommands);
 
   const headerControls = useChatTitleControls({
     sessionId: activeSession?.id ?? "",
@@ -1295,15 +1345,6 @@ export function ChatShell({
                   )}
                 </ResizablePanelGroup>
               </SidebarRail>
-              <CommandPalette
-                open={paletteOpen}
-                onOpenChange={setPaletteOpen}
-                sessions={sessions}
-                activeContextId={contextId}
-                onNewChat={onNewChat}
-                canExport={displayMessages.length > 0}
-                onExport={handleExport}
-              />
             </div>
           </BusyProvider>
         </ViewerProvider>

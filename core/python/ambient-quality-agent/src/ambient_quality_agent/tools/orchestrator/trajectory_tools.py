@@ -123,12 +123,20 @@ async def count_investigation_trajectory_outcomes(
 
     Returns:
         Dictionary mapping "days" to a list of daily outcome counts sorted
-        oldest first ({"days": [{"day": ..., "outcome": ..., "trajectories": N}]}),
-        or {"error": ...} on failure. Outcomes are "not_ingested", "no_insight",
-        or "in_an_insight". Days without trajectories are omitted. Note that
-        "no_insight" includes both passing trajectories and unclustered failures
-        because the store retains only cluster-level results rather than
-        per-trajectory evaluations.
+        oldest first ({"days": [{"day": ..., "outcome": ...,
+        "trajectories": N, "estimated_trajectories": X}]}), or {"error": ...}
+        on failure. Outcomes are "not_ingested", "no_insight", or
+        "in_an_insight". Days without trajectories are omitted. "trajectories"
+        counts the sampled trajectories. Investigations sample some
+        trajectories more often than others, so "estimated_trajectories" is
+        how many trajectories of all traffic they stand for, the sum of
+        1 / p: use it for daily figures about all traffic. It is not scaled
+        to the trajectories each window held, as an investigation's own
+        estimates are, so the two need not agree. It is null when a
+        trajectory was recorded without its sampling probability; use
+        "trajectories" then. Note that "no_insight" includes both passing
+        trajectories and unclustered failures because the store retains only
+        cluster-level results rather than per-trajectory evaluations.
     """
     state = tool_context.state
     try:

@@ -31,6 +31,9 @@ if TYPE_CHECKING:
     from ambient_quality_agent.tools.insights.bigquery_store import (
         BigQueryInsightStore,
     )
+    from ambient_quality_agent.tools.trajectories.bigquery_store import (
+        BigQueryTrajectoryStore,
+    )
 
 logger = logging.getLogger(__package__)
 
@@ -93,6 +96,58 @@ async def check_insights_schema() -> None:
                 columns,
                 table,
             )
+
+
+async def check_trajectories_schema() -> None:
+    """Name any trajectories column AQA writes that the live table lacks.
+
+    A failed trajectories load drops the sweep's rows with only a warning, so
+    the drift is named here, at boot.
+    """
+    try:
+        from ambient_quality_agent import config as config_module
+
+        cfg = config_module.config or config_module.load()
+        store = _build_trajectory_store(cfg)
+        missing = await asyncio.to_thread(store.list_missing_columns)
+    except Exception:
+        logger.exception("could not check the trajectories table's schema")
+        return
+    if missing is None:
+        logger.info(
+            "trajectories table not reachable yet; skipping the schema check"
+        )
+    elif missing:
+        logger.error(
+            "trajectories table is missing column(s) %s that AQA writes; every "
+            "trajectory write will fail until the schema is updated "
+            "(terraform/modules/aqa/schemas/trajectories.json).",
+            missing,
+        )
+
+
+def _build_trajectory_store(cfg: Config) -> BigQueryTrajectoryStore:
+    """Builds a `BigQueryTrajectoryStore` over the configured dataset.
+
+    Args:
+        cfg: Configuration specifying dataset coordinates.
+
+    Returns:
+        BigQueryTrajectoryStore instance for schema inspection.
+    """
+    from ambient_quality_agent import clients
+    from ambient_quality_agent.tools.trajectories.bigquery_store import (
+        BigQueryTrajectoryStore,
+    )
+
+    return BigQueryTrajectoryStore(
+        client=clients.create_bigquery_client(
+            cfg.project_id, cfg.aqa_dataset_location
+        ),
+        project_id=cfg.project_id,
+        dataset=cfg.aqa_dataset,
+        observed_agent_key=cfg.resolve_agent_key(),
+    )
 
 
 def _build_insight_store(cfg: Config) -> BigQueryInsightStore:

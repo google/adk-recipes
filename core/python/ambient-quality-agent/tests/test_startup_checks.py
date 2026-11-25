@@ -39,6 +39,9 @@ from ambient_quality_agent.tools.investigations.bigquery_store import (
 from ambient_quality_agent.tools.investigations.models import (
     list_snapshot_columns,
 )
+from ambient_quality_agent.tools.trajectories.bigquery_store import (
+    BigQueryTrajectoryStore,
+)
 
 
 @dataclasses.dataclass
@@ -46,6 +49,7 @@ class _Field:
     """One column of a BigQuery table's schema, as `get_table` reports it."""
 
     name: str
+    fields: list[_Field] = dataclasses.field(default_factory=list)
 
 
 def _table_with(columns: list[str]) -> mock.MagicMock:
@@ -181,6 +185,100 @@ def test_each_insight_table_is_reported_on_its_own() -> None:
     assert "label" in (missing["insights"] or [])
 
 
+def _build_trajectory_store(get_table: Any) -> BigQueryTrajectoryStore:
+    """Builds a trajectory store over a mock client.
+
+    Args:
+        get_table: What the client's ``get_table`` does.
+
+    Returns:
+        The store.
+    """
+    client = mock.MagicMock()
+    client.get_table = get_table
+    return BigQueryTrajectoryStore(
+        client=client, project_id="p", dataset="d", observed_agent_key="a"
+    )
+
+
+def _build_deployed_trajectories_table() -> mock.MagicMock:
+    """Builds the table the Terraform schema declares, with its nested record.
+
+    Returns:
+        A mock table whose schema lists the declared columns and the nested
+        record's fields.
+    """
+    table = mock.MagicMock()
+    schema = json.loads((_SCHEMA_DIR / "trajectories.json").read_text())
+    table.schema = [
+        _Field(
+            column["name"],
+            [_Field(field["name"]) for field in column.get("fields", [])],
+        )
+        for column in schema["schema"]
+    ]
+    return table
+
+
+def test_a_deployed_trajectories_table_reports_nothing_missing() -> None:
+    store = _build_trajectory_store(
+        lambda *_a, **_k: _build_deployed_trajectories_table()
+    )
+
+    assert store.list_missing_columns() == []
+
+
+def test_a_trajectories_table_without_the_sampling_columns_names_them() -> None:
+    """Every load naming a column, or a record field, the table lacks fails."""
+    table = _build_deployed_trajectories_table()
+    table.schema = [
+        field
+        if field.name != "sampling_signals"
+        else _Field("sampling_signals", [_Field("has_error")])
+        for field in table.schema
+        if field.name != "inclusion_probability"
+    ]
+    store = _build_trajectory_store(lambda *_a, **_k: table)
+
+    missing = store.list_missing_columns()
+
+    assert missing is not None
+    assert "inclusion_probability" in missing
+    assert "sampling_signals.cost_percentile" in missing
+    assert "sampling_signals.has_error" not in missing
+
+
+def test_an_unreachable_trajectories_table_is_none() -> None:
+    def raise_missing_dataset(*_a: Any, **_k: Any) -> Any:
+        """Fails as `get_table` does for a dataset that does not exist.
+
+        Raises:
+            RuntimeError: Always.
+        """
+        raise RuntimeError("no such dataset")
+
+    store = _build_trajectory_store(raise_missing_dataset)
+
+    assert store.list_missing_columns() is None
+
+
+def test_a_missing_trajectories_column_is_logged_as_an_error(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    table = _build_deployed_trajectories_table()
+    table.schema = [f for f in table.schema if f.name != "sampling_weight"]
+    store = _build_trajectory_store(lambda *_a, **_k: table)
+    monkeypatch.setattr(
+        startup_checks, "_build_trajectory_store", lambda _cfg: store
+    )
+
+    with caplog.at_level(logging.INFO):
+        asyncio.run(startup_checks.check_trajectories_schema())
+
+    assert "sampling_weight" in caplog.text
+    assert any(record.levelno == logging.ERROR for record in caplog.records)
+
+
 # --- what the checks log --------------------------------------------------- #
 
 
@@ -239,12 +337,14 @@ def test_a_check_that_cannot_even_build_its_store_does_not_raise(
         BigQueryInvestigationStore, "from_config", classmethod(explode)
     )
     monkeypatch.setattr(startup_checks, "_build_insight_store", explode)
+    monkeypatch.setattr(startup_checks, "_build_trajectory_store", explode)
 
     asyncio.run(startup_checks.check_investigations_schema())
     asyncio.run(startup_checks.check_insights_schema())
+    asyncio.run(startup_checks.check_trajectories_schema())
 
 
-def test_the_lifespan_runs_both_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_lifespan_runs_every_check(monkeypatch: pytest.MonkeyPatch) -> None:
     """A check nothing invokes reads as coverage and reports nothing."""
     from ambient_quality_agent import fast_api_app
     from fastapi import FastAPI
@@ -262,6 +362,11 @@ def test_the_lifespan_runs_both_checks(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         fast_api_app, "check_insights_schema", lambda: record("insights")
+    )
+    monkeypatch.setattr(
+        fast_api_app,
+        "check_trajectories_schema",
+        lambda: record("trajectories"),
     )
     # Everything the lifespan does after the checks, stubbed out.
     monkeypatch.setattr(fast_api_app, "attach_a2a_routes", mock.AsyncMock())
@@ -284,4 +389,4 @@ def test_the_lifespan_runs_both_checks(monkeypatch: pytest.MonkeyPatch) -> None:
 
     asyncio.run(drive())
 
-    assert ran == ["investigations", "insights"]
+    assert ran == ["investigations", "insights", "trajectories"]

@@ -25,10 +25,13 @@ import {
   POLL_INTERVAL_MS,
   inFlightAge,
   listInFlightInvestigations,
+  listScheduledInvestigations,
+  renderOngoingNote,
   resolveNewestInvestigation,
   runButtonLabel,
   listStalledInvestigations,
 } from "@/lib/investigation-state";
+import { formatInstant } from "@/lib/investigation-summary";
 import { textStyle } from "@/lib/typography";
 import { cn } from "@/lib/utils";
 import { useAgentKey } from "@/lib/agent-selection";
@@ -36,13 +39,14 @@ import { isViewerMode } from "@/lib/viewer-mode";
 
 /**
  * Builds the inline status note shown beside the run button while a sweep is
- * polling or after a start attempt fails. Composed from state rather than
- * written at each turn, so a refresh landing after a failed start cannot
- * quietly wipe the reason it failed.
+ * polling, scheduled, or after a start attempt fails. Composed from state
+ * rather than written at each turn, so a refresh landing after a failed start
+ * cannot quietly wipe the reason it failed.
  *
  * Args:
  *   error: Error message from the most recent start attempt, if any.
  *   inFlight: Count of actively running or pending investigations.
+ *   scheduled: Active scheduled investigations awaiting their delayed trigger.
  *
  * Returns:
  *   Note text, hover tooltip, and color class, or null when idle with no error.
@@ -50,6 +54,7 @@ import { isViewerMode } from "@/lib/viewer-mode";
 function buildStatusNote(
   error: string,
   inFlight: number,
+  scheduled: ReturnType<typeof listScheduledInvestigations>,
 ): { text: string; title: string; tone: string } | null {
   if (error) {
     return {
@@ -62,6 +67,16 @@ function buildStatusNote(
     return {
       text: `Checking every ${Math.round(POLL_INTERVAL_MS / 1000)}s`,
       title: "Re-reading the list until the investigation finishes.",
+      tone: "text-muted-foreground",
+    };
+  }
+  const scheduledText = renderOngoingNote(scheduled, formatInstant);
+  if (scheduledText) {
+    return {
+      text: scheduledText,
+      title:
+        "An investigation is already scheduled after an agent update. " +
+        "Starting another investigation immediately is still allowed.",
       tone: "text-muted-foreground",
     };
   }
@@ -118,6 +133,7 @@ export function RunInvestigationButton({ className }: { className?: string }) {
 
   const live = listInFlightInvestigations(investigations.data);
   const inFlight = live.length;
+  const scheduled = listScheduledInvestigations(investigations.data);
   const stalled = listStalledInvestigations(investigations.data);
 
   const start = useMutation({
@@ -134,12 +150,13 @@ export function RunInvestigationButton({ className }: { className?: string }) {
       }),
   });
 
-  // Poll only while there is something to wait for. `refetchInterval` is set on
-  // the shared investigations key, so the table on the same page refreshes with
-  // it rather than keeping a second timer of its own.
+  // Poll while an investigation is running or awaiting its delayed trigger.
+  // `refetchInterval` is set on the shared investigations key, so the table on
+  // the same page refreshes with it rather than keeping a second timer.
   useQuery({
     ...investigationsQuery(agentKey),
-    refetchInterval: inFlight > 0 ? POLL_INTERVAL_MS : false,
+    refetchInterval:
+      inFlight > 0 || scheduled.length > 0 ? POLL_INTERVAL_MS : false,
   });
 
   // A sweep just finished. Its counters, its day column and any insights it
@@ -171,7 +188,7 @@ export function RunInvestigationButton({ className }: { className?: string }) {
       : starting
         ? "Starting…"
         : runButtonLabel(0);
-  const shown = buildStatusNote(error, inFlight);
+  const shown = buildStatusNote(error, inFlight, scheduled);
   const stalledTitle =
     inFlight === 0 && !error ? buildStalledTitle(stalled) : undefined;
 

@@ -687,8 +687,49 @@ def _build_funnel_counters(
         rubrics_generated=rubrics,
         findings_errored=errored_findings,
         findings_unclustered=unclustered,
+        **_build_sampling_counters(scanned, sampled, passed, failed, errored),
     )
     return counters, failed_rubrics
+
+
+def _build_sampling_counters(
+    scanned: int, sampled: int, passed: int, failed: int, errored: int
+) -> dict[str, int]:
+    """Builds a weighted sweep's estimate counters.
+
+    Drawn from a generator of their own, seeded by the sweep's counts, so that
+    adding them leaves every other generated value as it was.
+
+    Args:
+        scanned: Trajectories in the window.
+        sampled: Trajectories the sweep picked.
+        passed: Evaluated trajectories that passed.
+        failed: Evaluated trajectories that failed.
+        errored: Evaluated trajectories whose evaluation errored.
+
+    Returns:
+        Keyword arguments for `InvestigationCounters`.
+    """
+    rng = random.Random(f"sampling-{scanned}-{sampled}-{passed}-{failed}")  # noqa: S311 - reproducible mock data; non-cryptographic
+    evaluated = passed + failed + errored
+    # A window that fits the budget is picked whole, every trajectory at p = 1.
+    scale = scanned / sampled if sampled and scanned > sampled else 1.0
+    # Weighting picks failing trajectories more often than their share of the
+    # window, so their estimate is scaled up by less than the passing ones'.
+    failed_scale = scale * rng.uniform(0.35, 0.6) if scale > 1 else 1.0
+    raw_passed = passed * scale * (1.1 if scale > 1 else 1.0)
+    raw_failed = max(failed, failed * failed_scale)
+    raw_total = raw_passed + raw_failed + errored * scale
+    # The sweep scales its estimates so that they sum to the window
+    # (`_sweep.compute_trajectories_represented`).
+    to_window = scanned / raw_total if scanned and raw_total else 1.0
+    return {
+        "estimated_trajectories_eval_passed": round(raw_passed * to_window),
+        "estimated_trajectories_eval_failed": round(raw_failed * to_window),
+        "trajectories_evaluated_with_risk_signals": _sample_binomial(
+            rng, evaluated, 0.3
+        ),
+    }
 
 
 def _sample_binomial(
@@ -941,18 +982,30 @@ def build_dataset(scenario: Scenario, config: Config) -> dict[str, Any]:
                 seen_occurrences[defect.key] = (
                     seen_occurrences.get(defect.key, 0) + 1
                 )
+                occurrence = _build_occurrence(
+                    rng,
+                    defect=defect,
+                    insight_id=insight_id,
+                    investigation_id=record.investigation_id,
+                    created_at=window_end,
+                    agent_name=config.observed_agent_name,
+                    item_count=item_count,
+                    trajectory_count=trajectory_count,
+                    verified_rate=scenario.verified_rate,
+                )
+                # Each failing trajectory stands for as many conversations of
+                # all traffic as the sweep's failures do on average.
+                failed = record.counters.trajectories_eval_failed
                 occurrences.append(
-                    _build_occurrence(
-                        rng,
-                        defect=defect,
-                        insight_id=insight_id,
-                        investigation_id=record.investigation_id,
-                        created_at=window_end,
-                        agent_name=config.observed_agent_name,
-                        item_count=item_count,
-                        trajectory_count=trajectory_count,
-                        verified_rate=scenario.verified_rate,
+                    occurrence.model_copy(
+                        update={
+                            "estimated_trajectory_count": trajectory_count
+                            * record.counters.estimated_trajectories_eval_failed
+                            / failed
+                        }
                     )
+                    if failed
+                    else occurrence
                 )
             record = record.model_copy(
                 update={

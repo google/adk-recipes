@@ -55,6 +55,60 @@ class IngestStatus(enum.StrEnum):
     inspectable."""
 
 
+class SamplingSignals(BaseModel):
+    """The risk properties weighted sampling scored one trajectory on.
+
+    Each value is relative to the investigation's window or selection, so the
+    same trajectory can score differently in another investigation. See
+    `ambient_quality_agent.tools.ingestion.sampling` for the definitions.
+    """
+
+    has_error: bool = False
+    """Whether the trajectory recorded an error."""
+
+    has_abnormal_finish: bool = False
+    """Whether a model call stopped for a reason other than a normal stop."""
+
+    has_tool_reported_error: bool = False
+    """Whether a tool returned a result that reports a failure."""
+
+    busy_turn_calls: int | None = None
+    """The most calls to one tool in any one turn (on Cloud Logging, the most
+    model calls in any one turn), or None without any call."""
+
+    total_tokens: int | None = None
+    """The trajectory's total tokens, or None when no model call recorded its
+    usage."""
+
+    slowest_turn_ms: int | None = None
+    """Duration of the trajectory's slowest turn in milliseconds, or None when
+    the source recorded none."""
+
+    busy_turn_percentile: float | None = None
+    """Percentile, from 0 to 1, of `busy_turn_calls` among the candidates, or
+    None where it is None."""
+
+    cost_percentile: float | None = None
+    """Percentile, from 0 to 1, of `total_tokens` among the candidates, or None
+    where it is None."""
+
+    latency_percentile: float | None = None
+    """Percentile, from 0 to 1, of `slowest_turn_ms` among the candidates, or
+    None where it is None."""
+
+    busy_turn_tail: float = 0.0
+    """Tail score, from 0 to 1, of `busy_turn_percentile`: the share of the
+    busy-turn coefficient the weight added."""
+
+    cost_tail: float = 0.0
+    """Tail score, from 0 to 1, of `cost_percentile`: the share of the cost
+    coefficient the weight added."""
+
+    latency_tail: float = 0.0
+    """Tail score, from 0 to 1, of `latency_percentile`: the share of the
+    latency coefficient the weight added."""
+
+
 class InvestigationTrajectory(BaseModel):
     """Association recording that an investigation sampled a trajectory.
 
@@ -107,6 +161,20 @@ class InvestigationTrajectory(BaseModel):
     """Outcome of ingesting this trajectory during the investigation. Required
     so uningestible rows cannot default to ``INGESTED``."""
 
+    sampling_weight: float | None = None
+    """Weight weighted sampling gave the trajectory (see
+    `ambient_quality_agent.tools.ingestion.sampling`). ``None`` under uniform
+    sampling, and on a record without sampling recorded."""
+
+    inclusion_probability: float | None = Field(default=None, gt=0, le=1)
+    """Probability that the investigation picked this trajectory, given the
+    rest of its sample. A figure for all traffic counts the trajectory as
+    ``1 / inclusion_probability`` trajectories. ``None`` on a record without
+    sampling recorded."""
+
+    sampling_signals: SamplingSignals | None = None
+    """The risk properties behind `sampling_weight`; ``None`` where it is."""
+
 
 class TrajectoryProcessingState(enum.StrEnum):
     """Processing outcome of a sampled trajectory across ingestion and correlation.
@@ -155,6 +223,13 @@ class DailyOutcome(BaseModel):
 
     outcome: TrajectoryProcessingState
     trajectories: int
+    """Sampled trajectories with this outcome on this day."""
+
+    estimated_trajectories: float | None = None
+    """Trajectories of all traffic that `trajectories` stands for: the sum of
+    ``1 / InvestigationTrajectory.inclusion_probability`` over them, without
+    the scaling an investigation's own estimates get. ``None`` when any of
+    them was recorded without a probability."""
 
 
 class TrajectoryStatus(enum.StrEnum):

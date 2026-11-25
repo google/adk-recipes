@@ -19,6 +19,25 @@ from __future__ import annotations
 import dataclasses
 
 from agentplatform._genai.types import EvalCase, EvaluationDataset
+from ambient_quality_agent.tools.trajectories.models import SamplingSignals
+
+
+@dataclasses.dataclass(frozen=True)
+class SamplingRecord:
+    """How the ingestion query picked one trajectory."""
+
+    inclusion_probability: float
+    """The trajectory's probability of being picked, given the rest of the
+    sample (see `ambient_quality_agent.tools.ingestion.sampling`). A figure for
+    all traffic counts the trajectory as ``1 / inclusion_probability``
+    trajectories."""
+
+    weight: float | None = None
+    """The trajectory's sampling weight, or ``None`` under uniform sampling."""
+
+    signals: SamplingSignals | None = None
+    """The risk properties behind `weight`, or ``None`` under uniform
+    sampling."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -99,6 +118,12 @@ class Page:
     """Deployment revision per case, keyed by ``eval_case_id`` (session ID for
     multi-turn, trace ID for single-turn). Empty for sources that do not report
     revisions, which denotes a single unnamed revision."""
+
+    sampling: dict[str, SamplingRecord] = dataclasses.field(
+        default_factory=dict
+    )
+    """How each case was picked, keyed by ``eval_case_id``. A case without an
+    entry was picked with an unknown probability."""
 
     @property
     def is_exhausted(self) -> bool:

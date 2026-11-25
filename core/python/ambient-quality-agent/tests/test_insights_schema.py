@@ -68,6 +68,7 @@ _PYTHON_TYPE: dict[str, type] = {
     "TIMESTAMP": str,
     "INT64": int,
     "JSON": str,
+    "FLOAT": float,
 }
 
 # JSON columns loaded as native Python structures to store queryable JSON arrays
@@ -93,12 +94,16 @@ _ALIASED_TABLES: dict[str, str] = {
     "m": "insights",
     "rm": "insights",
     "t": "insights",
+    "inv": "investigations",
 }
 
-# Read like an alias but name no table: the UNNEST(@renames) struct, and the
+# Read like an alias but name no table: the UNNEST(@renames) struct; the
 # `owned` CTE, whose columns are checked against the two tables where it selects
-# them rather than where it is read.
-_NON_TABLE_QUALIFIERS = frozenset({"r", "owned"})
+# them rather than where it is read; the CTEs behind an insight's estimated
+# share, likewise; and the SAFE prefix of a function call.
+_NON_TABLE_QUALIFIERS = frozenset(
+    {"r", "owned", "latest_runs", "runs", "sighted", "shares", "SAFE"}
+)
 
 _QUALIFIED_COLUMN = re.compile(r"\b(\w+)\.(\w+)\b")
 _LOWER_CASE_WORD = re.compile(r"\b[a-z_]\w*\b")
@@ -200,6 +205,7 @@ def _written_rows() -> dict[str, tuple[dict[str, Any], bigquery.LoadJobConfig]]:
                 # More ids than sampled rubrics, as a real cluster has: the
                 # examples are capped, the trajectory ids are not.
                 trajectory_ids=["case-1", "case-2"],
+                estimated_trajectory_count=12.5,
                 examples=[
                     FindingExample(
                         finding=Finding(

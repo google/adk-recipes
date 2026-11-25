@@ -37,9 +37,10 @@ Wiring::
         │
         ▼
     _build_records_to_save() ──► InsightWriter.save_investigation_result()
-        │
+        │ compute_estimated_trajectory_count() ◄── state["trajectories_represented"]
         ▼
-    InsightWriter.resolve_stale_insights(), skipped on custom-triggered investigations
+    InsightWriter.resolve_stale_insights(), skipped on custom-triggered
+    investigations and on sweeps that judged no trajectory
 
 Clusters this investigation's findings into labeled candidate issues, one
 attributed agent (root or sub-agent) at a time. When
@@ -74,11 +75,16 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import logging
+from collections.abc import Mapping, Sequence
 
 from ambient_quality_agent import config as config_module
 from ambient_quality_agent.core._logging import log_node_run
-from ambient_quality_agent.core.nodes import _common, _stage
-from ambient_quality_agent.core.state import WorkflowState, add_counts
+from ambient_quality_agent.core.nodes import _common, _stage, _sweep
+from ambient_quality_agent.core.state import (
+    WorkflowState,
+    add_counts,
+    count_judged_trajectories,
+)
 from ambient_quality_agent.tools.agent_revision import (
     AgentRevision,
     resolve_latest_revision,
@@ -348,17 +354,32 @@ def insight_correlation_node(ctx: Context) -> Event:
     # as though the defect were seen today. Bounded, and visible on the investigation
     # record; the fix if it bites is a `last_ambient_seen_at` column that only
     # ambient sweeps advance.
+    judged = count_judged_trajectories(state)
     if trigger_type == CUSTOM_TRIGGER_TYPE:
         logger.info(
             "insight_correlation: investigation_id=%s custom run; skipped auto-resolution.",
             investigation_id,
         )
+    elif not judged:
+        # Resolution reads absence as evidence, so it needs a sweep that looked.
+        # A sweep can finish having judged nothing and still succeed: the window
+        # held no trajectories, or every evaluation errored (a reviewer whose
+        # every reply is unparsable does not fail the sweep). Retiring insights
+        # on that evidence would turn a telemetry or reviewer outage lasting
+        # longer than the window into a clean board.
+        logger.warning(
+            "insight_correlation: investigation_id=%s no trajectory was judged; "
+            "skipped auto-resolution.",
+            investigation_id,
+        )
     else:
         store.resolve_stale_insights(now, auto_resolve_days)
         logger.info(
-            "insight_correlation: investigation_id=%s resolved insights stale beyond %s day(s).",
+            "insight_correlation: investigation_id=%s resolved insights stale beyond "
+            "%s day(s), on %d judged trajectory/trajectories.",
             investigation_id,
             auto_resolve_days,
+            judged,
         )
 
     return WorkflowState.record_progress_event(
@@ -611,6 +632,30 @@ def _build_match_candidate(cluster: Cluster, verdict: _Verdict) -> Cluster:
     )
 
 
+def compute_estimated_trajectory_count(
+    trajectory_ids: Sequence[str], represented: Mapping[str, float]
+) -> float | None:
+    """Estimates the conversations a cluster's trajectories stand for.
+
+    Each trajectory counts as the conversations it stands for, about
+    ``1 / p`` where ``p`` is its probability of being picked, scaled as the
+    sweep scaled its own estimates, so the cluster's share of them is its
+    share of the window.
+
+    Args:
+        trajectory_ids: The cluster's distinct trajectory ids.
+        represented: The conversations each evaluated trajectory stands for,
+            keyed by id (`_sweep.compute_trajectories_represented`).
+
+    Returns:
+        The estimate, or None when the cluster names no trajectory or one
+        that stands for an unknown number.
+    """
+    if not trajectory_ids or any(t not in represented for t in trajectory_ids):
+        return None
+    return sum(represented[t] for t in trajectory_ids)
+
+
 def _build_records_to_save(
     candidates: list[_Candidate],
     state: State,
@@ -638,6 +683,7 @@ def _build_records_to_save(
     """
     agent_name = config_module.extract_agent_key(state)
     investigation_id = state.get("investigation_id", "")
+    represented = state.get(_sweep.TRAJECTORIES_REPRESENTED_KEY) or {}
 
     new_insights: list[Insight] = []
     seen_ids: list[str] = []
@@ -691,6 +737,9 @@ def _build_records_to_save(
                 trajectory_count=cluster.trajectory_count,
                 analyses=verdict.analyses,
                 trajectory_ids=cluster.trajectory_ids,
+                estimated_trajectory_count=compute_estimated_trajectory_count(
+                    cluster.trajectory_ids, represented
+                ),
                 examples=[
                     example.model_copy(update={"examined": True})
                     if example.trajectory_id in verdict.examined_trajectory_ids

@@ -635,6 +635,40 @@ def test_config_passes_the_starter_selector_on(monkeypatch) -> None:
     assert "starter_selector" not in _get("/api/config").json()
 
 
+class OngoingConfigClient(FakeClient):
+    """Stub engine whose config answer includes ambient and ongoing status."""
+
+    async def post_command(
+        self, path: str, payload: dict[str, Any] | None = None
+    ) -> Any:
+        answer = await super().post_command(path, payload)
+        if path != "config":
+            return answer
+        return {
+            **answer,
+            "ambient": {
+                "scheduled_trigger_enabled": True,
+                "investigation_schedule": "0 12 * * *",
+                "update_trigger_enabled": False,
+                "observed_engine_id": "",
+            },
+            "ongoing_investigations": [
+                {"investigation_id": "inv-1", "status": "running"}
+            ],
+        }
+
+
+def test_config_passes_ambient_and_ongoing_investigations_on(
+    monkeypatch,
+) -> None:
+    _inject(monkeypatch, OngoingConfigClient(config=_CONFIG))
+    body = _get("/api/config").json()
+    assert body["ambient"]["investigation_schedule"] == "0 12 * * *"
+    assert body["ongoing_investigations"] == [
+        {"investigation_id": "inv-1", "status": "running"}
+    ]
+
+
 def test_config_without_payload_errors(monkeypatch) -> None:
     # The turn produced no `show_config` result -> a clean error, not a 5xx.
     _inject(monkeypatch, FakeClient(config=None))
@@ -945,6 +979,36 @@ def test_a_conversation_is_served_with_its_console_link(monkeypatch) -> None:
     assert occurrence["console_urls"] == {"t-1": "https://console/x?tid=a"}
 
 
+def test_a_conversation_is_served_with_the_signals_it_was_picked_for(
+    monkeypatch,
+) -> None:
+    """Keyed like `console_urls`; a trajectory sampled uniformly has none."""
+    signals = {
+        "has_error": True,
+        "has_abnormal_finish": False,
+        "has_tool_reported_error": False,
+        "busy_turn_tail": 0.0,
+        "cost_tail": 0.5,
+        "latency_tail": 0.0,
+    }
+    detail = {
+        "insight": {"insight_id": "ins-1"},
+        "occurrences": [
+            {
+                "occurrence_id": "o-1",
+                "trajectory_ids": ["t-1", "t-2"],
+                "investigation_trajectories": [
+                    {"trajectory_id": "t-1", "sampling_signals": signals},
+                    {"trajectory_id": "t-2", "sampling_signals": None},
+                ],
+            }
+        ],
+    }
+    _inject(monkeypatch, FakeClient(insight_detail=detail))
+    occurrence = _get("/api/insights/ins-1").json()["occurrences"][0]
+    assert occurrence["sampling_signals"] == {"t-1": signals}
+
+
 def test_a_conversation_with_no_trace_gets_no_link(monkeypatch) -> None:
     """Every `big_query` trajectory, and anything sampled without a store.
     Absent rather than empty, so the panel renders a plain chip rather
@@ -1023,16 +1087,33 @@ def test_confidence_is_the_one_field_with_no_answer(monkeypatch) -> None:
     assert "confidence" not in body["insight"]
 
 
-def test_impact_is_the_traces_the_issue_touched(monkeypatch) -> None:
-    """The dashboard sorts and ranks on `impact`, and nothing here ranks
-    clusters. `trajectory_count` is already SUM(o.trace_count) over the sightings,
-    which is the closest thing we have to how much an issue matters."""
+def test_impact_from_an_engine_without_one_is_the_traces_the_issue_touched(
+    monkeypatch,
+) -> None:
+    """`trajectory_count` is SUM(o.trace_count) over the sightings, the closest
+    an engine that reports no impact comes to how much an issue matters."""
     detail = {
         "insight": {"insight_id": "ins-1", "trajectory_count": 592},
         "occurrences": [],
     }
     _inject(monkeypatch, FakeClient(insight_detail=detail))
     assert _get("/api/insights/ins-1").json()["insight"]["impact"] == 592
+
+
+def test_impact_is_what_the_engine_ranks_by(monkeypatch) -> None:
+    """500 old reviewed conversations and one new occurrence estimated at 10
+    rank as 510; showing the estimate alone would contradict the order."""
+    detail = {
+        "insight": {
+            "insight_id": "ins-1",
+            "trajectory_count": 501,
+            "estimated_trajectory_count": 10.0,
+            "impact": 510.4,
+        },
+        "occurrences": [],
+    }
+    _inject(monkeypatch, FakeClient(insight_detail=detail))
+    assert _get("/api/insights/ins-1").json()["insight"]["impact"] == 510
 
 
 def test_trajectories_checked_is_the_traces_the_sighting_was_evaluated_over(
@@ -1846,3 +1927,22 @@ def test_the_message_is_the_one_the_dashboard_draws_amber() -> None:
     assert "is not serving its API yet" in ui_app._NOT_DEPLOYED
     first, _, rest = ui_app._NOT_DEPLOYED.partition(". ")
     assert first.endswith("yet") and rest
+
+
+def test_list_insights_forwards_the_search_text(monkeypatch) -> None:
+    fake = FakeClient(insights=_INSIGHTS)
+    _inject(monkeypatch, fake)
+
+    r = _get("/api/insights?q=%20employee%20id%20")
+
+    assert r.status_code == 200
+    assert fake.args_for("insights/list")["query"] == "employee id"
+
+
+def test_list_insights_sends_no_blank_search(monkeypatch) -> None:
+    fake = FakeClient(insights=_INSIGHTS)
+    _inject(monkeypatch, fake)
+
+    _get("/api/insights?q=%20%20")
+
+    assert "query" not in fake.args_for("insights/list")

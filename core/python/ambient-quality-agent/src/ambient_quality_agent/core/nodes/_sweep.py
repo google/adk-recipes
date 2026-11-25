@@ -24,22 +24,29 @@ Wiring::
         ▼
     Page ── evaluate() ──► every Evaluation (Protocol) in the list
         │ SweepProgress ──► _stage.StageReporter
-        │   once before the first page, after each page, while an
-        │   evaluation reports from inside one, and kept alive between
+        │   once before the first page, after each page, once every
+        │   evaluation finishes, while one reports, and kept alive between
         ▼
     _common.add_ingestion_counts()
+        │ compute_trajectories_represented() ◄── Page.sampling
+        ▼
+    state trajectories_represented
         │
         ├── no pages, deployed ──► render_nothing_evaluated_line()
         ├── no traces, standalone ──► _common.count_by_agent()
         │                             ──► raise EmptyWindowError
         ▼
-    collapse_outcomes() ◄── Evaluation.outcomes
-        │ build_pages_key()
+    Evaluation.finish() ──► every Evaluation (Protocol) in the list
+        │ SweepProgress.keep_alive()
+        ▼
+    resolve_worst_outcomes() ◄── Evaluation.outcomes
+        │ collapse_outcomes(), build_pages_key()
+        │ compute_estimated_counts()
         ▼
     add_counts() ──► state counters
         │
         ▼
-    Evaluation.finish(), Evaluation.render_summary() ──► summary lines
+    Evaluation.render_summary() ──► summary lines
 
 Separates fetching from scoring. The producers each grew their own copy of the
 same fetch loop, so enabling two of them queried and paged the same window
@@ -77,10 +84,17 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
     from ambient_quality_agent.core.state import ADKStateLike
-    from ambient_quality_agent.tools.ingestion.models import Page
+    from ambient_quality_agent.tools.ingestion.models import (
+        Page,
+        SamplingRecord,
+    )
     from google.adk.agents.context import Context
 
 logger = logging.getLogger(__name__)
+
+TRAJECTORIES_REPRESENTED_KEY = "trajectories_represented"
+"""State key holding how many trajectories of all traffic each evaluated one
+stands for, keyed by trajectory id (`WorkflowState.trajectories_represented`)."""
 
 
 class EmptyWindowError(RuntimeError):
@@ -98,7 +112,10 @@ class Evaluation(Protocol):
 
     Implementations append their findings to `state["finding_sets"]`, which is
     the single shape `insight_correlation` consumes, so adding an evaluation
-    needs no change downstream.
+    needs no change downstream. The sweep totals `outcomes`, `findings_count`,
+    and `rubrics_count` into state counters after `finish` returns, so an
+    evaluation that runs across pages can complete its remaining work in
+    `finish`.
     """
 
     name: str
@@ -123,6 +140,11 @@ class Evaluation(Protocol):
     @property
     def rubrics_count(self) -> int: ...
 
+    @property
+    def pending_count(self) -> int:
+        """Trajectories handed to `evaluate` that this evaluation has not judged yet."""
+        ...
+
     def evaluate(self, state: ADKStateLike, page: Page) -> None:
         """Judge one page and record what it found."""
 
@@ -130,18 +152,26 @@ class Evaluation(Protocol):
         """One markdown line for the investigation's progress event."""
 
     def finish(self, state: ADKStateLike) -> None:
-        """Finalize evaluation state and raise if it failed outright."""
+        """Complete remaining work, finalize state, and raise if the evaluation failed outright.
+
+        Args:
+            state: Workflow state to finalize.
+
+        Raises:
+            Exception: If the evaluation failed outright.
+        """
 
 
 class SweepProgress:
     """How far a sweep got, written as the investigation's stage rows.
 
-    `run_sweep` writes one before the first page and one after every page, and
-    keeps the newest alive while a page is evaluated. A window usually arrives
-    as a single page, so those alone would jump from none to all: an evaluation
-    that judges a page one trajectory at a time reports through `advance` as it
-    goes, and those reports are written at most once every
-    `_stage.PROGRESS_INTERVAL_SECONDS`.
+    `run_sweep` writes one before the first page, one after every page for the
+    trajectories no evaluation still owes, and one once every evaluation has
+    finished, keeping the newest alive while evaluations run or finish. A window
+    usually arrives as a single page, so those alone would jump from none to
+    all: an evaluation that judges a page one trajectory at a time reports
+    through `advance` as it goes, and those reports are written at most once
+    every `_stage.PROGRESS_INTERVAL_SECONDS`.
     """
 
     def __init__(self, state: ADKStateLike, stage: str) -> None:
@@ -168,22 +198,22 @@ class SweepProgress:
         self._reporter.write(self._build_progress(0, 0))
 
     def advance(self, judged: int, findings: int) -> None:
-        """Reports how far the page being evaluated got, if a row is due.
+        """Reports trajectories judged since the last `finish_page`, if a row is due.
 
         Args:
-            judged: Trajectories of this page judged so far.
-            findings: Findings filed on this page so far.
+            judged: Trajectories judged since the last `finish_page` (or `start`).
+            findings: Findings filed since the last `finish_page` (or `start`).
         """
         self._reporter.write_if_due(
             self._build_progress(self._done + judged, self._findings + findings)
         )
 
     def finish_page(self, trajectories: int, findings: int) -> None:
-        """Writes the row for a page every evaluation has finished.
+        """Writes the row for the trajectories every evaluation has finished.
 
         Args:
-            trajectories: Trajectories judged so far, this page included.
-            findings: Findings filed so far, this page included.
+            trajectories: Trajectories judged by every evaluation so far.
+            findings: Findings filed so far.
         """
         self._done, self._findings = trajectories, findings
         progress = self._build_progress(trajectories, findings)
@@ -193,7 +223,7 @@ class SweepProgress:
             self._reporter.write(progress)
 
     def keep_alive(self) -> contextlib.AbstractContextManager[None]:
-        """Re-writes the newest report while a page is evaluated; see
+        """Re-writes the newest report while evaluations run or finish; see
         `_stage.StageReporter.keep_alive`.
 
         Returns:
@@ -268,6 +298,7 @@ def run_sweep(
         start=start,
         end=end,
         limit=budget,
+        sampling_seed=state.get("sampling_seed") or None,
     )
 
     if progress is None:
@@ -279,6 +310,8 @@ def run_sweep(
     pages = 0
     trajectories = 0
     truncated = False
+    samplings: dict[str, SamplingRecord] = {}
+    unestimated = 0
     page = fetcher.fetch_page(
         execution_id=execution_id, metric_type=metric_type
     )
@@ -286,13 +319,21 @@ def run_sweep(
         if page.dataset.eval_cases:
             pages += 1
             trajectories += len(page.dataset.eval_cases)
+            for case in page.dataset.eval_cases:
+                record = page.sampling.get(case.eval_case_id or "")
+                if record is None:
+                    unestimated += 1
+                else:
+                    samplings[str(case.eval_case_id)] = record
             # The eval service judges a page in one call, and a custom metric
             # may run long after the review: neither reports as it goes.
             with progress.keep_alive():
                 for evaluation in evaluations:
                     evaluation.evaluate(state, page)
             progress.finish_page(
-                trajectories, sum(e.findings_count for e in evaluations)
+                trajectories
+                - max((e.pending_count for e in evaluations), default=0),
+                sum(e.findings_count for e in evaluations),
             )
         truncated = truncated or page.memory_truncated
         if page.is_exhausted:
@@ -306,6 +347,12 @@ def run_sweep(
     # Once for the sweep, not once per evaluation: the tallies belong to the
     # ingestion, which happened a single time however many evaluations read it.
     _common.add_ingestion_counts(state, fetcher)
+    represented = compute_trajectories_represented(samplings, scanned)
+    # Reassigned rather than updated, so ADK records the state change.
+    state[TRAJECTORIES_REPRESENTED_KEY] = {
+        **(state.get(TRAJECTORIES_REPRESENTED_KEY) or {}),
+        **represented,
+    }
 
     if not pages:
         if (
@@ -332,15 +379,41 @@ def run_sweep(
             )
         ]
 
+    # Every evaluation finishes before the sweep totals their outcomes, under
+    # `keep_alive` because an evaluation that runs across pages waits for its
+    # remaining work here. Every evaluation finishes even when one fails, so a
+    # reviewer outage cannot throw away the counters and findings a healthy
+    # code-metric run beside it produced. The first failure is raised after the
+    # counters are written, which still fails the sweep.
+    first_error: BaseException | None = None
+    with progress.keep_alive():
+        for evaluation in evaluations:
+            try:
+                evaluation.finish(state)
+            except _stage.InvestigationCancelledError:
+                raise
+            except BaseException as exc:
+                logger.exception(
+                    "%s: evaluation %r failed.", node_name, evaluation.name
+                )
+                first_error = first_error or exc
+
     pages_key = build_pages_key(metric_type)
     state[pages_key] = int(state.get(pages_key, 0) or 0) + pages
+    # Estimates count one unit: an investigation that reviews both whole
+    # conversations and single turns records none, as adding them would count
+    # neither population.
+    reviews_both_units = state.get(
+        "quality_analysis_mode"
+    ) == "eval_service" and bool(state.get("single_turn_metrics"))
     # Once, by the sweep, for every counter an analyzer contributes to. The
     # tallies belong to the ingestion, which happened a single time however
     # many analyzers read it, so an analyzer adding its own would report six
     # trajectories where three were ingested.
-    outcomes = collapse_outcomes(
+    worst = resolve_worst_outcomes(
         evaluation.outcomes for evaluation in evaluations
     )
+    outcomes = collapse_outcomes([worst])
     add_counts(
         state,
         trajectories_evaluated=trajectories,
@@ -350,22 +423,34 @@ def run_sweep(
         findings_generated=sum(e.findings_count for e in evaluations),
         rubrics_generated=sum(e.rubrics_count for e in evaluations),
     )
-
-    # Every evaluation finishes even when one of them fails, so a reviewer
-    # outage cannot throw away the counters and findings a healthy code-metric
-    # run beside it already produced. The first failure is raised afterwards,
-    # which still fails the sweep.
-    first_error: BaseException | None = None
-    for evaluation in evaluations:
-        try:
-            evaluation.finish(state)
-        except BaseException as exc:
-            logger.exception(
-                "%s: evaluation %r failed.", node_name, evaluation.name
-            )
-            first_error = first_error or exc
+    if unestimated:
+        logger.warning(
+            "%s: %d evaluated trajectory(s) carry no sampling probability; "
+            "recording no estimates for all traffic.",
+            node_name,
+            unestimated,
+        )
+    elif reviews_both_units:
+        logger.info(
+            "%s: the investigation reviews both conversations and single "
+            "turns; recording no estimates for all traffic.",
+            node_name,
+        )
+    add_counts(
+        state,
+        **compute_estimated_counts(
+            worst,
+            samplings,
+            represented,
+            complete=unestimated == 0 and not reviews_both_units,
+        ),
+    )
     if first_error is not None:
         raise first_error
+
+    progress.finish_page(
+        trajectories, sum(e.findings_count for e in evaluations)
+    )
 
     suffix = " (stopped early near the memory limit)" if truncated else ""
     return [evaluation.render_summary() + suffix for evaluation in evaluations]
@@ -493,17 +578,19 @@ def build_pages_key(metric_type: MetricType) -> str:
     return f"{metric_type.value.lower()}_pages_evaluated"
 
 
-def collapse_outcomes(outcomes: Iterable[Mapping[str, str]]) -> dict[str, int]:
-    """Count each trajectory once, whatever number of analyzers judged it.
+def resolve_worst_outcomes(
+    outcomes: Iterable[Mapping[str, str]],
+) -> dict[str, str]:
+    """Picks one verdict per trajectory, whatever number of analyzers judged it.
 
-    Takes each analyzer's `Evaluation.outcomes`. A trajectory several of them
-    judged keeps the worst verdict, by the same `OUTCOME_RANK` that orders the
-    metrics within one trajectory. Adding up each analyzer's own tally instead
-    would report six verdicts over three trajectories the moment a second
-    analyzer joined the sweep.
+    A trajectory several analyzers judged keeps the worst verdict, by the same
+    `OUTCOME_RANK` that orders the metrics within one trajectory.
 
-    The unit is one trajectory, which is what `trajectories_evaluated` counts: a whole
-    session under ``MULTI_TURN`` and a single turn under ``SINGLE_TURN``.
+    Args:
+        outcomes: Each analyzer's `Evaluation.outcomes`.
+
+    Returns:
+        The worst verdict of each trajectory, keyed as the analyzers key it.
     """
     worst: dict[str, str] = {}
     for per_analyzer in outcomes:
@@ -513,6 +600,109 @@ def collapse_outcomes(outcomes: Iterable[Mapping[str, str]]) -> dict[str, int]:
                 or OUTCOME_RANK[outcome] > OUTCOME_RANK[worst[key]]
             ):
                 worst[key] = outcome
-    counts = Counter(worst.values())
+    return worst
+
+
+def collapse_outcomes(outcomes: Iterable[Mapping[str, str]]) -> dict[str, int]:
+    """Count each trajectory once, whatever number of analyzers judged it.
+
+    Takes each analyzer's `Evaluation.outcomes`. A trajectory several of them
+    judged keeps the worst verdict (`resolve_worst_outcomes`). Adding up each
+    analyzer's own tally instead would report six verdicts over three
+    trajectories the moment a second analyzer joined the sweep.
+
+    The unit is one trajectory, which is what `trajectories_evaluated` counts: a whole
+    session under ``MULTI_TURN`` and a single turn under ``SINGLE_TURN``.
+
+    Args:
+        outcomes: Each analyzer's verdict per trajectory, keyed by trajectory.
+
+    Returns:
+        The number of trajectories with each outcome in `OUTCOME_RANK`,
+        including those with none.
+    """
+    counts = Counter(resolve_worst_outcomes(outcomes).values())
     # Every outcome, including the zeros: `run_sweep` writes all three counters.
     return {outcome: counts[outcome] for outcome in OUTCOME_RANK}
+
+
+def compute_trajectories_represented(
+    samplings: Mapping[str, SamplingRecord], scanned: int | None
+) -> dict[str, float]:
+    """Computes how many trajectories of all traffic each evaluated one stands for.
+
+    Each counts as ``1 / p`` trajectories, where ``p`` is its probability of
+    being picked. Summed over the sample, that estimates the candidates
+    without bias, but with noise from a weighted sample's random threshold,
+    and short by the picks that could not be read. Scaling every count so
+    that the sum equals the candidates the window held removes both, and
+    keeps each trajectory's share of the sum.
+
+    Args:
+        samplings: How each evaluated trajectory was picked, keyed by
+            ``eval_case_id``.
+        scanned: Candidates the window held, from `count_scanned`; None or 0
+            when unknown, which leaves the counts unscaled.
+
+    Returns:
+        The trajectories each one stands for, keyed like `samplings`.
+    """
+    total = sum(
+        1 / record.inclusion_probability for record in samplings.values()
+    )
+    scale = scanned / total if scanned and total else 1.0
+    return {
+        key: scale / record.inclusion_probability
+        for key, record in samplings.items()
+    }
+
+
+def compute_estimated_counts(
+    worst: Mapping[str, str],
+    samplings: Mapping[str, SamplingRecord],
+    represented: Mapping[str, float],
+    *,
+    complete: bool,
+) -> dict[str, int]:
+    """Estimates the sweep's trajectory counts for all traffic in its window.
+
+    Each evaluated trajectory counts as the trajectories it stands for.
+    Rounded to whole trajectories, as every counter is an integer.
+
+    Args:
+        worst: Each evaluated trajectory's verdict, from
+            `resolve_worst_outcomes`.
+        samplings: How each evaluated trajectory was picked, keyed by
+            ``eval_case_id``.
+        represented: The trajectories each one in `samplings` stands for,
+            from `compute_trajectories_represented`.
+        complete: Whether to record estimates: every evaluated trajectory
+            is in `samplings`, and the investigation reviews one unit. An
+            estimate missing some trajectories would read as a smaller
+            window, and one adding sessions to turns as a larger one.
+
+    Returns:
+        Counter increments: ``trajectories_evaluated_with_risk_signals``, and
+        when `complete`, the two ``estimated_*`` counters.
+    """
+    counts = {
+        "trajectories_evaluated_with_risk_signals": sum(
+            1
+            for record in samplings.values()
+            if record.weight is not None and record.weight > 1
+        )
+    }
+    if not complete:
+        return counts
+    for outcome, name in (
+        (PASSED, "estimated_trajectories_eval_passed"),
+        (FAILED, "estimated_trajectories_eval_failed"),
+    ):
+        counts[name] = round(
+            sum(
+                represented[key]
+                for key, verdict in worst.items()
+                if verdict == outcome and key in represented
+            )
+        )
+    return counts

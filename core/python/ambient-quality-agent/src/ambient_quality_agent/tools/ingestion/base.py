@@ -31,6 +31,9 @@ Wiring::
         │               │             build_selector_table_ref()
         │               ├─► trajectory_files: store_trajectory_files()
         │               │     └─► TrajectoryFileStore ──► ObjectStore (jobs)
+        │               ├─► sampling: build_weighted_target_ctes(),
+        │               │             build_uniform_target_cte(),
+        │               │             parse_sampling_record()
         │               ├─► TrajectoryRecorder: add(), flush()
         │               └─► MemoryGuard: should_stop()
         │
@@ -50,6 +53,7 @@ import dataclasses
 import datetime as dt
 import logging
 import re
+import uuid
 from collections.abc import Callable
 from typing import Any, ClassVar
 from urllib.parse import urlparse
@@ -59,11 +63,12 @@ from ambient_quality_agent import clients
 from ambient_quality_agent.core._memory import MemoryGuard
 from ambient_quality_agent.core.labels import build_request_labels
 from ambient_quality_agent.tools.evaluation.models import MetricType
-from ambient_quality_agent.tools.ingestion import selector
+from ambient_quality_agent.tools.ingestion import sampling, selector
 from ambient_quality_agent.tools.ingestion.models import (
     IngestionCounts,
     MappedRow,
     Page,
+    SamplingRecord,
 )
 from ambient_quality_agent.tools.ingestion.trajectory_files import (
     TrajectoryFilesReport,
@@ -233,10 +238,10 @@ class BaseFetcher(abc.ABC):
     ) -> int:
         """Count the traces the window holds, before any sampling.
 
-        The same selection `submit_query` makes, minus its ``ORDER BY RAND()``
-        and ``LIMIT`` -- so the answer is the population the investigation's budget
-        sampled from, and the denominator its ingestion counts are read
-        against. Records the result on `counts` as well as returning it.
+        The candidates `submit_query` samples from, without the sampling -- so
+        the answer is the population the investigation's budget sampled from,
+        and the denominator its ingestion counts are read against. Records the
+        result on `counts` as well as returning it.
 
         Args:
             agent_name: Name of the observed agent.
@@ -286,6 +291,8 @@ class BaseFetcher(abc.ABC):
         start: dt.datetime,
         end: dt.datetime,
         limit: int,
+        *,
+        sampling_seed: str | None = None,
     ) -> str:
         """Start a fetch for the given window and wait until it is ready.
 
@@ -296,6 +303,9 @@ class BaseFetcher(abc.ABC):
             start: Inclusive start of the time window.
             end: Inclusive end of the time window.
             limit: Maximum sessions (multi-turn) or turns (single-turn).
+            sampling_seed: Seed of a weighted sample's random keys: the same
+                seed over the same candidates picks the same sample. None
+                draws a fresh seed.
 
         Returns:
             An opaque ``execution_id`` to pass to `fetch_page`.
@@ -338,9 +348,13 @@ class BigQueryJobFetcher(BaseFetcher):
     Subclasses supply only the parts that reflect their schema: the telemetry
     source they serve (`TELEMETRY_SOURCE`), its selector table's time
     column (`SELECTOR_TIME_COLUMN`) and starter selector
-    (`STARTER_SELECTOR`), the SQL (`_build_ingestion_sql`,
-    `_build_count_sql` and `_build_count_by_agent_sql`), the required table
-    schema (`SCHEMA_FILE`), and the row-to-case mapping (`_map_row`).
+    (`STARTER_SELECTOR`), the SQL (the candidates of `_resolve_candidates`,
+    `_build_ingestion_sql`, `_build_count_by_agent_sql` and the risk
+    measures of `_build_measures_sql`), the required table schema
+    (`SCHEMA_FILE`), and the row-to-case mapping (`_map_row`).
+    `_build_target_ctes` turns a subclass's candidates into the sample the
+    configured `sampling.SamplingMethod` calls for, and `_build_count_sql`
+    counts them.
     """
 
     TELEMETRY_SOURCE: ClassVar[str]
@@ -377,6 +391,7 @@ class BigQueryJobFetcher(BaseFetcher):
         selector_sql: str = "",
         selector_ai_model: str = "",
         job_timeout_ms: int = DEFAULT_JOB_TIMEOUT_MS,
+        sampling_method: sampling.SamplingMethod = sampling.SamplingMethod.UNIFORM,
     ) -> None:
         """Initialize the fetcher.
 
@@ -409,6 +424,12 @@ class BigQueryJobFetcher(BaseFetcher):
                 `ambient_quality_agent.tools.ingestion.selector.wrap`).
             job_timeout_ms: Server-side execution timeout in milliseconds for
                 every query job except dry runs, which do not execute.
+            sampling_method: How `submit_query` picks trajectories from the
+                candidates, with or without a selector (see
+                `ambient_quality_agent.tools.ingestion.sampling`). Weighted
+                sampling falls back to uniform when `count_scanned` last
+                counted more than `sampling.WEIGHTED_CANDIDATE_LIMIT`
+                candidates.
         """
         self._project_id = project_id
         self._observed_project_id = observed_project_id or project_id
@@ -425,6 +446,8 @@ class BigQueryJobFetcher(BaseFetcher):
         self._selector_sql = selector_sql
         self._selector_ai_model = selector_ai_model
         self._job_timeout_ms = job_timeout_ms
+        self._sampling_method = sampling_method
+        self._candidates: int | None = None
         self.counts = IngestionCounts()
 
     @property
@@ -494,6 +517,124 @@ class BigQueryJobFetcher(BaseFetcher):
         )
 
     @abc.abstractmethod
+    def _build_measures_sql(self, metric_type: MetricType) -> str:
+        """Return the subquery of each window trajectory's risk measures.
+
+        Weighted sampling scores the candidates on these; see
+        `ambient_quality_agent.tools.ingestion.sampling`. The subquery reads
+        the observed agent's telemetry in the window on its own, without the
+        candidates, so that a selector among them runs only once.
+
+        Args:
+            metric_type: Ingestion scope, which fixes the unit measured:
+                sessions for ``MULTI_TURN``, turns for ``SINGLE_TURN``.
+
+        Returns:
+            SQL subquery projecting the unit's id column and
+            `sampling.MEASURE_COLUMNS`, at most one row per id, binding
+            `@agent_name`, `@window_start` and `@window_end`.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def _resolve_candidates(self, metric_type: MetricType) -> tuple[str, str]:
+        """Return the subquery of the trajectories an investigation samples from.
+
+        The configured selector's matches where one applies, otherwise every
+        trajectory of the observed agent in the window.
+
+        Args:
+            metric_type: Ingestion scope, which fixes the unit: sessions for
+                ``MULTI_TURN``, turns for ``SINGLE_TURN``.
+
+        Returns:
+            The subquery, projecting the distinct candidate ids and binding at
+            most `@agent_name`, `@window_start` and `@window_end`, and the
+            name of its id column.
+        """
+        raise NotImplementedError
+
+    def _build_target_ctes(
+        self, metric_type: MetricType, target_cte: str
+    ) -> str:
+        """Builds the common table expressions that sample the candidates.
+
+        Args:
+            metric_type: Ingestion scope, passed to `_resolve_candidates` and
+                `_build_measures_sql`.
+            target_cte: Name of the expression holding the sample.
+
+        Returns:
+            The expressions, without ``WITH``; `target_cte` projects the
+            candidates' id column and `sampling.SAMPLING_COLUMN`.
+        """
+        candidates, id_column = self._resolve_candidates(metric_type)
+        if self._resolve_sampling_method() is sampling.SamplingMethod.WEIGHTED:
+            return sampling.build_weighted_target_ctes(
+                candidates=candidates,
+                measures=self._build_measures_sql(metric_type),
+                id_column=id_column,
+                target_cte=target_cte,
+            )
+        return sampling.build_uniform_target_cte(
+            candidates=candidates, id_column=id_column, target_cte=target_cte
+        )
+
+    def _resolve_sampling_method(self) -> sampling.SamplingMethod:
+        """Chooses how the next ingestion query samples.
+
+        Returns:
+            The configured method, or uniform sampling in place of weighted
+            when `count_scanned` last counted more candidates than
+            `sampling.WEIGHTED_CANDIDATE_LIMIT`.
+        """
+        if (
+            self._sampling_method is sampling.SamplingMethod.WEIGHTED
+            and self._candidates is not None
+            and self._candidates > sampling.WEIGHTED_CANDIDATE_LIMIT
+        ):
+            return sampling.SamplingMethod.UNIFORM
+        return self._sampling_method
+
+    def _build_count_sql(self, metric_type: MetricType) -> str:
+        """Builds the query counting the candidates `_build_target_ctes` samples.
+
+        Args:
+            metric_type: Ingestion scope, passed to `_resolve_candidates`.
+
+        Returns:
+            SQL returning one row with a ``scanned`` count.
+        """
+        candidates, _ = self._resolve_candidates(metric_type)
+        return f"SELECT COUNT(*) AS scanned FROM ({candidates})"  # noqa: S608 - may embed agent selector SQL, gated by precheck_selector's table guard and dry-run allowlist
+
+    def _build_run_parameters(
+        self,
+        agent_name: str,
+        start: dt.datetime,
+        end: dt.datetime,
+        limit: int,
+        seed: str,
+    ) -> list[bigquery.ScalarQueryParameter]:
+        """Builds the parameters an ingestion query binds.
+
+        Args:
+            agent_name: Name of the observed agent.
+            start: Window start timestamp.
+            end: Window end timestamp.
+            limit: Sampling budget.
+            seed: Seed of a weighted sample's random keys.
+
+        Returns:
+            The scoping parameters and ``@limit``, plus
+            `sampling.build_sampling_parameters` under weighted sampling.
+        """
+        parameters = _build_run_parameters(agent_name, start, end, limit)
+        if self._resolve_sampling_method() is sampling.SamplingMethod.WEIGHTED:
+            parameters += sampling.build_sampling_parameters(limit, seed)
+        return parameters
+
+    @abc.abstractmethod
     def _build_ingestion_sql(self, metric_type: MetricType) -> str:
         """Return the complete ingestion query for ``metric_type``.
 
@@ -502,21 +643,6 @@ class BigQueryJobFetcher(BaseFetcher):
 
         Returns:
             Executable SQL query string.
-        """
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def _build_count_sql(self, metric_type: MetricType) -> str:
-        """Return the total matching count query for ``metric_type``.
-
-        Evaluates the same targets population as `_build_ingestion_sql` without sampling or
-        limit constraints to accurately report total scanned records.
-
-        Args:
-            metric_type: Ingestion scope (single-turn or multi-turn).
-
-        Returns:
-            Executable SQL query returning a single ``scanned`` count column.
         """
         raise NotImplementedError
 
@@ -620,6 +746,7 @@ class BigQueryJobFetcher(BaseFetcher):
             agent_name,
         )
         self.counts.scanned += scanned
+        self._candidates = scanned
         return scanned
 
     def count_by_agent(
@@ -708,7 +835,7 @@ class BigQueryJobFetcher(BaseFetcher):
 
     def _map_page(
         self, rows: list[dict[str, Any]], metric_type: MetricType
-    ) -> tuple[list[EvalCase], dict[str, str]]:
+    ) -> tuple[list[EvalCase], dict[str, str], dict[str, SamplingRecord]]:
         """Map a page of rows to cases, tallying outcomes and guarding memory.
 
         Results accumulate across pages, and a row's content (inline or
@@ -747,14 +874,16 @@ class BigQueryJobFetcher(BaseFetcher):
             metric_type: Ingestion scope (single-turn or multi-turn).
 
         Returns:
-            The page's cases, and the deployment revision of each, keyed by
-            ``eval_case_id``. A source that reports no revision yields an empty
-            map, which reads as its single unnamed revision.
+            The page's cases, the deployment revision of each, and how each
+            was picked, both keyed by ``eval_case_id``. A source that reports
+            no revision yields an empty revision map, which reads as its
+            single unnamed revision.
         """
         total = len(rows)
         cases: list[EvalCase] = []
         revisions: dict[str, str] = {}
         files = TrajectoryFilesReport()
+        samplings: dict[str, SamplingRecord] = {}
         for index, row in enumerate(rows, start=1):
             if self._memory_guard():
                 logger.warning(
@@ -779,6 +908,9 @@ class BigQueryJobFetcher(BaseFetcher):
             # it is the status the trajectory store keeps. A fetcher says what
             # it found; this says what became of it.
             status = _resolve_ingest_status(mapped)
+            record = sampling.parse_sampling_record(
+                row.get(sampling.SAMPLING_COLUMN)
+            )
             # The case goes with the ids: this is the one moment that holds
             # both, and archiving it here is what keeps the payload store off
             # every other phase's plumbing.
@@ -789,6 +921,7 @@ class BigQueryJobFetcher(BaseFetcher):
                 status=status,
                 case=mapped.case,
                 agent_revision=mapped.agent_revision,
+                sampling=record,
             )
             if mapped.case is None:
                 self.counts.failed += 1
@@ -800,6 +933,8 @@ class BigQueryJobFetcher(BaseFetcher):
             cases.append(mapped.case)
             if mapped.agent_revision and mapped.case.eval_case_id:
                 revisions[mapped.case.eval_case_id] = mapped.agent_revision
+            if record is not None and mapped.case.eval_case_id:
+                samplings[mapped.case.eval_case_id] = record
         if files.total:
             logger.info(
                 "Trajectory files on this page: %d stored, %d not stored, "
@@ -808,7 +943,7 @@ class BigQueryJobFetcher(BaseFetcher):
                 files.not_stored,
                 files.failed,
             )
-        return cases, revisions
+        return cases, revisions, samplings
 
     def precheck_selector(
         self,
@@ -906,7 +1041,10 @@ class BigQueryJobFetcher(BaseFetcher):
         run_sql = self._build_ingestion_sql(MetricType.MULTI_TURN)
         run_job = self._submit_dry_run(
             run_sql,
-            _build_run_parameters(agent_name, start, end, limit),
+            # A dry run picks nothing, so any seed will do.
+            self._build_run_parameters(
+                agent_name, start, end, limit, seed="precheck"
+            ),
             access_denied=reads_unreadable_table,
         )
         if isinstance(run_job, selector.PrecheckResult):
@@ -1043,6 +1181,8 @@ class BigQueryJobFetcher(BaseFetcher):
         start: dt.datetime,
         end: dt.datetime,
         limit: int = 100,
+        *,
+        sampling_seed: str | None = None,
     ) -> str:
         """Submit a background query job and wait for it to complete.
 
@@ -1056,22 +1196,38 @@ class BigQueryJobFetcher(BaseFetcher):
             start: Inclusive start of the time window.
             end: Inclusive end of the time window.
             limit: Maximum sessions (multi-turn) or turns (single-turn).
+            sampling_seed: Seed of a weighted sample's random keys (bound as
+                ``@sampling_seed``); None draws a fresh one. Unused under
+                uniform sampling.
 
         Returns:
             The completed job's id, usable with `fetch_page`.
         """
+        method = self._resolve_sampling_method()
+        if method is not self._sampling_method:
+            logger.warning(
+                "The %s window holds %d candidates, more than weighted "
+                "sampling can rank (%d); sampling them uniformly.",
+                metric_type.value,
+                self._candidates,
+                sampling.WEIGHTED_CANDIDATE_LIMIT,
+            )
         sql = self._build_ingestion_sql(metric_type)
+        seed = uuid.uuid4().hex if sampling_seed is None else sampling_seed
         job_config = self._build_job_config(
-            _build_run_parameters(agent_name, start, end, limit)
+            self._build_run_parameters(agent_name, start, end, limit, seed)
         )
 
         query_job = self._client.query(sql, job_config=job_config)
         logger.info(
-            "Submitted %s ingestion job %s for agent %r (limit=%d).",
+            "Submitted %s ingestion job %s for agent %r (limit=%d, %s sampling, "
+            "seed %r).",
             metric_type.value,
             query_job.job_id,
             agent_name,
             limit,
+            method.value,
+            seed,
         )
         _wait_for_job(query_job)
         logger.info("Ingestion job %s completed.", query_job.job_id)
@@ -1098,7 +1254,7 @@ class BigQueryJobFetcher(BaseFetcher):
             next page (``page.is_exhausted`` is ``True`` once none remain).
         """
         rows, next_page_token = self._fetch_page_rows(execution_id, page_token)
-        cases, revisions = self._map_page(rows, metric_type)
+        cases, revisions, samplings = self._map_page(rows, metric_type)
         # One write per page: the unit ingestion produces, and what the store
         # is sized for.
         self._recorder.flush()
@@ -1116,6 +1272,7 @@ class BigQueryJobFetcher(BaseFetcher):
             next_page_token=next_page_token,
             memory_truncated=self._memory_truncated,
             revisions=revisions,
+            sampling=samplings,
         )
 
     def _fetch_page_rows(

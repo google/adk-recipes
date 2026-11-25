@@ -23,6 +23,7 @@ from typing import Any
 
 from ambient_quality_agent import providers
 from ambient_quality_agent.config import (
+    DEFAULT_DATA_SAMPLING,
     DEFAULT_INSIGHTS_MATCH_MODEL,
     DEFAULT_QUALITY_ANALYSIS_MODE,
     DEFAULT_SELECTOR_AI_MODEL,
@@ -73,6 +74,28 @@ def add_counts(state: ADKStateLike, **deltas: int) -> None:
     for name, delta in deltas.items():
         counters[name] = counters.get(name, 0) + delta
     state[COUNTERS_KEY] = counters
+
+
+def count_judged_trajectories(state: ADKStateLike) -> int:
+    """Counts the trajectories this investigation evaluated to a verdict.
+
+    Passed plus failed, which is what `collapse_outcomes` leaves once the
+    errored ones are set aside. An errored trajectory was read but produced no
+    verdict, so it is evidence of nothing. `trajectories_evaluated` is the
+    wrong counter to read here: it counts every trajectory the sweep submitted,
+    the errored ones and those that yielded neither verdicts nor a score
+    alike.
+
+    Args:
+        state: ADK session state mapping.
+
+    Returns:
+        Number of trajectories that reached a pass or fail verdict.
+    """
+    counters = state.get(COUNTERS_KEY) or {}
+    passed = int(counters.get("trajectories_eval_passed") or 0)
+    failed = int(counters.get("trajectories_eval_failed") or 0)
+    return passed + failed
 
 
 event_writer: Callable[[ADKStateLike, str, str], None] = (
@@ -137,6 +160,12 @@ class WorkflowState(BaseModel):
     data_evaluation_cap: int = 1000
     """Maximum number of trajectories to sample in a single investigation."""
 
+    data_sampling: str = DEFAULT_DATA_SAMPLING
+    """How the investigation picks its trajectories: ``weighted`` or
+    ``uniform`` (`config.ALLOWED_DATA_SAMPLING`). The attachment's setting,
+    or the one a custom investigation chose
+    (`CustomOverrides.resolve_sampling`)."""
+
     multi_turn_metrics: list[str] = Field(
         default_factory=lambda: [
             "task_success",
@@ -197,6 +226,12 @@ class WorkflowState(BaseModel):
     """Identifier of the investigation this workflow run belongs to, seeded from
     `Investigation.investigation_id` (or generated for local runs)."""
 
+    sampling_seed: str = ""
+    """Seed of the weighted sample's random keys: the investigation id and the
+    job's task attempt, so a run's sample can be drawn again while a retry
+    after a crash draws a new one. Empty outside a job, where each sample draws
+    a fresh seed."""
+
     budget_per_metric: int = 0
     """Per-metric evaluation budget, derived from `data_evaluation_cap`
     and the total active metric count across all metric types."""
@@ -233,6 +268,13 @@ class WorkflowState(BaseModel):
     to minimize memory overhead. Stored as serialized dicts to support durable
     state persistence across workflow transitions.
     """
+
+    trajectories_represented: dict[str, float] = Field(default_factory=dict)
+    """How many trajectories of all traffic each evaluated trajectory stands
+    for, keyed by trajectory id, from every sweep of the investigation
+    (`_sweep.compute_trajectories_represented`). `insight_correlation` sums
+    them over a cluster's trajectories to estimate how many conversations of
+    all traffic the cluster stands for."""
 
     multi_turn_pages_evaluated: int = 0
     """Count of evaluated multi-turn pages, recorded for investigation
@@ -307,6 +349,7 @@ class WorkflowState(BaseModel):
             telemetry_table=cfg.telemetry_table,
             telemetry_location=cfg.telemetry_location,
             data_evaluation_cap=cfg.data_evaluation_cap,
+            data_sampling=cfg.data_sampling,
             multi_turn_metrics=list(cfg.multi_turn_metrics),
             single_turn_metrics=list(cfg.single_turn_metrics),
             data_lookback_window=cfg.data_lookback_window,

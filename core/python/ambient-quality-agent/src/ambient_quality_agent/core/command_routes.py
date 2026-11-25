@@ -191,6 +191,7 @@ async def list_insights(request: Request) -> dict[str, Any]:
         page_size=_parse_count(filters.get("page_size")),
         day=str(filters.get("day", "")),
         page=_parse_count(filters.get("page")),
+        query=str(filters.get("query", "")),
     )
 
 
@@ -473,7 +474,8 @@ async def show_config(request: Request) -> dict[str, Any]:
     """Returns the configuration this deployment is running under.
 
     AQuA's own settings from the environment, with the observed agent's taken
-    from whatever `attach` stored. Read-only.
+    from whatever `attach` stored, alongside ambient trigger status and any
+    ongoing investigations. Read-only.
 
     Args:
         request: Request whose body may carry `agent_key`.
@@ -483,8 +485,7 @@ async def show_config(request: Request) -> dict[str, Any]:
     """
     args = await _read_json_body(request)
     context = await _build_route_context(args)
-    # In a thread, as resolving the agent may read the jobs store.
-    return await asyncio.to_thread(config_tools.show_config, context)
+    return await config_tools.show_config(context)
 
 
 # The code-metric library, sent by `aqua metrics` and written with the engine's

@@ -13,18 +13,29 @@
 // limitations under the License.
 
 import { useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, Check, Info } from "lucide-react";
 import {
   healthQuery,
+  investigationsQuery,
   saveSchedule,
   scheduleQuery,
+  type InvestigationListItem,
   type ScheduleChange,
 } from "@/lib/aqua-api";
 import { formatCron } from "@/lib/cron";
-import { formatInstant } from "@/lib/investigation-summary";
-import { mono, textStyle } from "@/lib/typography";
-import { cn } from "@/lib/utils";
+import {
+  POLL_INTERVAL_MS,
+  listOngoingInvestigations,
+} from "@/lib/investigation-state";
+import {
+  describeProgress,
+  extractCurrentProgress,
+  formatInstant,
+} from "@/lib/investigation-summary";
+import { link, mono, textStyle } from "@/lib/typography";
+import { cn, formatSentenceCase } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { FailureNote } from "@/components/ui/failure-note";
 import { HelpPopover } from "@/components/ui/help-popover";
@@ -34,12 +45,18 @@ import { useAgentKey } from "@/lib/agent-selection";
 
 const TITLE = "Investigation schedule";
 
-/** When the selected agent is investigated: its cron, and whether its
- *  scheduled investigations are on. Both are stored in its attachment, and the
- *  engine reads them on its next tick. */
+/** When the selected agent is investigated: its cron, whether its scheduled
+ *  investigations and update trigger are on, and any ongoing sweeps. */
 export function ScheduleCard() {
   const selectedKey = useAgentKey();
   const { data, isLoading, error } = useQuery(scheduleQuery(selectedKey));
+  const investigations = useQuery({
+    ...investigationsQuery(selectedKey),
+    refetchInterval: (query) =>
+      listOngoingInvestigations(query.state.data).length > 0
+        ? POLL_INTERVAL_MS
+        : false,
+  });
   const queryClient = useQueryClient();
   const [cronDraft, setCronDraft] = useState<string | null>(null);
   const [enabledDraft, setEnabledDraft] = useState<boolean | null>(null);
@@ -106,6 +123,7 @@ export function ScheduleCard() {
   const enabledChanged = enabled !== currentEnabled;
   const dirty = cronChanged || enabledChanged;
   const phrased = formatCron(cron);
+  const ongoing = listOngoingInvestigations(investigations.data);
 
   const discard = () => {
     setCronDraft(null);
@@ -144,6 +162,57 @@ export function ScheduleCard() {
           </p>
         )}
       </div>
+
+      {investigations.isError && (
+        <FailureNote
+          lead="Could not check ongoing investigations"
+          error={investigations.error}
+          compact
+        />
+      )}
+
+      {ongoing.length > 0 && (
+        <div
+          role="status"
+          className={cn(
+            textStyle.meta,
+            "flex flex-col gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/[0.04] p-2.5",
+          )}
+        >
+          <p className="font-medium text-foreground">
+            {ongoing.length === 1
+              ? "1 ongoing investigation — no manual start needed"
+              : `${ongoing.length} ongoing investigations — no manual start needed`}
+          </p>
+          <ul className="flex flex-col gap-1">
+            {ongoing.map((inv) => (
+              <OngoingInvestigationRow
+                key={inv.investigation_id}
+                investigation={inv}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {data.observed_engine_id && (
+        <p className={textStyle.meta}>
+          {data.update_trigger_enabled ? (
+            <>
+              Update trigger active for engine{" "}
+              <span className={mono}>{data.observed_engine_id}</span>: agent
+              redeployments automatically schedule an investigation.
+            </>
+          ) : (
+            <>
+              Update trigger for engine{" "}
+              <span className={mono}>{data.observed_engine_id}</span> is not
+              applied yet — run{" "}
+              <span className={mono}>agents-cli aqua attach</span>.
+            </>
+          )}
+        </p>
+      )}
 
       <form
         className="flex flex-col gap-3"
@@ -185,9 +254,9 @@ export function ScheduleCard() {
             )}
           >
             <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            Scheduled investigations are off. Run investigation still starts
-            one, and so does a new revision of the agent when it has an update
-            trigger.
+            {data.update_trigger_enabled
+              ? "Scheduled investigations are off. Run investigation still starts one, and agent redeployments still schedule one automatically."
+              : "Scheduled investigations are off. Run investigation still starts one, and so does a new revision of the agent when it has an update trigger."}
           </p>
         )}
 
@@ -229,4 +298,46 @@ export function ScheduleCard() {
       </form>
     </section>
   );
+}
+
+function OngoingInvestigationRow({
+  investigation,
+}: {
+  investigation: InvestigationListItem;
+}) {
+  return (
+    <li className="flex flex-wrap items-baseline justify-between gap-2">
+      <Link
+        to="/investigations/$investigationId"
+        params={{ investigationId: investigation.investigation_id }}
+        className={cn(mono, link.inline)}
+      >
+        {investigation.investigation_id}
+      </Link>
+      <span>{formatOngoingStatus(investigation)}</span>
+    </li>
+  );
+}
+
+/** Formats the inline status label for an ongoing investigation row.
+ *
+ * Args:
+ *   investigation: Active or scheduled investigation list item.
+ *
+ * Returns:
+ *   Human-readable status and progress counts.
+ */
+function formatOngoingStatus(investigation: InvestigationListItem): string {
+  const status = (investigation.status || "").toLowerCase();
+  if (status === "scheduled") {
+    return investigation.due_at
+      ? `Scheduled for ${formatInstant(investigation.due_at)}`
+      : "Scheduled";
+  }
+  const progress = extractCurrentProgress(investigation);
+  if (progress) {
+    const counts = describeProgress(progress);
+    return counts ? `Running · ${counts}` : "Running";
+  }
+  return formatSentenceCase(status || "running");
 }

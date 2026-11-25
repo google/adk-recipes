@@ -37,6 +37,8 @@ def run(
     trigger: str = "ambient",
     evaluated: int = 100,
     passed: int = 90,
+    errored: int = 0,
+    failed: int | None = None,
     investigation_id: str = "r",
 ) -> dict[str, Any]:
     finished = (
@@ -52,6 +54,13 @@ def run(
         "counters": {
             "trajectories_evaluated": evaluated,
             "trajectories_eval_passed": passed,
+            # Every evaluated trajectory reaches a verdict unless a test says
+            # otherwise, so a test that cares only about the rate can give the
+            # two numbers it is about.
+            "trajectories_eval_failed": (
+                evaluated - passed - errored if failed is None else failed
+            ),
+            "trajectories_eval_errored": errored,
         },
     }
 
@@ -141,6 +150,66 @@ def test_a_run_in_flight_suppresses_overdue() -> None:
 
     assert verdict.verdict == health.WATCHING
     assert "running now" in verdict.reason
+    assert len(verdict.ongoing_investigations) == 1
+
+
+def test_a_stale_in_flight_run_does_not_suppress_overdue() -> None:
+    """An abandoned pending row older than STALE_IN_FLIGHT_MINUTES must not
+    mask an overdue schedule forever."""
+    stale_created = (NOW - dt.timedelta(hours=3)).isoformat()
+    runs = [
+        *daily(4, newest_hours_ago=200),
+        {
+            **run(hours_ago=None, status="pending", investigation_id="wedged"),
+            "created_at": stale_created,
+        },
+    ]
+
+    verdict = assess(runs)
+
+    assert verdict.verdict == health.OVERDUE
+    assert verdict.ongoing_investigations == []
+
+
+def test_a_scheduled_run_within_grace_suppresses_overdue() -> None:
+    """A post-deploy scheduled sweep awaiting `due_at` counts as ongoing."""
+    due = (NOW + dt.timedelta(minutes=15)).isoformat()
+    runs = [
+        *daily(4, newest_hours_ago=200),
+        {
+            **run(hours_ago=None, status="scheduled", investigation_id="q1"),
+            "due_at": due,
+        },
+    ]
+
+    verdict = assess(runs)
+
+    assert verdict.verdict == health.WATCHING
+    assert "scheduled" in verdict.reason
+    assert [r["investigation_id"] for r in verdict.ongoing_investigations] == [
+        "q1"
+    ]
+
+
+def test_paused_triggers_with_nothing_ongoing_is_disabled() -> None:
+    verdict = health.assess(
+        daily(4, newest_hours_ago=200), [], now=NOW, triggers_enabled=False
+    )
+
+    assert verdict.verdict == health.DISABLED
+    assert "off" in verdict.reason.lower()
+
+
+def test_paused_triggers_still_report_an_ongoing_manual_sweep() -> None:
+    runs = [
+        *daily(4, newest_hours_ago=200),
+        run(hours_ago=None, status="running", trigger="manual"),
+    ]
+
+    verdict = health.assess(runs, [], now=NOW, triggers_enabled=False)
+
+    assert verdict.verdict == health.WATCHING
+    assert len(verdict.ongoing_investigations) == 1
 
 
 def test_on_schedule_is_watching() -> None:
@@ -229,7 +298,9 @@ def test_a_run_that_evaluated_nothing_has_no_pass_rate() -> None:
     verdict = assess([run(hours_ago=1, evaluated=0, passed=0)])
 
     assert verdict.last_investigation["trajectories"] is None
+    assert verdict.last_investigation["trajectories_judged"] is None
     assert verdict.last_investigation["trajectories_passed"] is None
+    assert verdict.last_investigation["trajectories_errored"] is None
     assert verdict.last_investigation["pass_rate"] is None
 
 
@@ -237,6 +308,82 @@ def test_a_pass_rate_is_reported_as_a_fraction() -> None:
     verdict = assess([run(hours_ago=1, evaluated=200, passed=150)])
     assert verdict.last_investigation["pass_rate"] == pytest.approx(0.75)
     assert verdict.last_investigation["trajectories"] == 200
+    assert verdict.last_investigation["trajectories_judged"] == 200
+
+
+def test_errored_evaluations_are_left_out_of_the_pass_rate() -> None:
+    """The rate the investigation lists show, so the home page and the list
+    cannot disagree about one investigation. An eval-service error is a
+    failure of the eval service, not of the watched agent."""
+    verdict = assess(
+        [run(hours_ago=1, evaluated=10, passed=6, failed=2, errored=2)]
+    )
+
+    assert verdict.last_investigation["pass_rate"] == pytest.approx(0.75)
+    assert verdict.last_investigation["trajectories"] == 10
+    assert verdict.last_investigation["trajectories_judged"] == 8
+    assert verdict.last_investigation["trajectories_passed"] == 6
+    assert verdict.last_investigation["trajectories_errored"] == 2
+
+
+def test_a_run_whose_every_evaluation_errored_has_no_pass_rate() -> None:
+    """A reviewer outage across a whole sweep judged nothing, so it made no
+    claim about quality; 0% would report the outage as total failure of the
+    watched agent."""
+    verdict = assess(
+        [run(hours_ago=1, evaluated=50, passed=0, failed=0, errored=50)]
+    )
+
+    assert verdict.last_investigation["pass_rate"] is None
+    assert verdict.last_investigation["trajectories_judged"] is None
+    assert verdict.last_investigation["trajectories_passed"] is None
+    # The sweep still read 50 trajectories, and the badge says what became of
+    # them rather than reporting nothing at all.
+    assert verdict.last_investigation["trajectories"] == 50
+    assert verdict.last_investigation["trajectories_errored"] == 50
+
+
+def test_the_pass_rate_for_all_traffic_reads_the_estimates() -> None:
+    """A weighted sample over-represents failures, so the sample's own pass
+    rate understates the window's."""
+    record = run(hours_ago=1, evaluated=100, passed=60)
+    record["counters"].update(
+        trajectories_scanned=5000,
+        estimated_trajectories_eval_passed=4500,
+        estimated_trajectories_eval_failed=500,
+        trajectories_evaluated_with_risk_signals=35,
+    )
+
+    last = assess([record]).last_investigation
+
+    assert last["pass_rate"] == pytest.approx(0.6)
+    assert last["estimated_pass_rate"] == pytest.approx(0.9)
+    assert last["trajectories_scanned"] == 5000
+    assert last["trajectories_with_risk_signals"] == 35
+
+
+def test_the_estimated_pass_rate_leaves_out_errored_evaluations() -> None:
+    """As the investigation lists compute it, so both show one rate."""
+    record = run(hours_ago=1, evaluated=100, passed=60)
+    record["counters"].update(
+        estimated_trajectories_eval_passed=19,
+        estimated_trajectories_eval_failed=6,
+    )
+
+    last = assess([record]).last_investigation
+
+    assert last["estimated_pass_rate"] == pytest.approx(19 / 25)
+
+
+def test_an_investigation_recorded_without_estimates_has_no_estimated_rate() -> (
+    None
+):
+    last = assess(
+        [run(hours_ago=1, evaluated=100, passed=60)]
+    ).last_investigation
+
+    assert last["estimated_pass_rate"] is None
+    assert last["pass_rate"] == pytest.approx(0.6)
 
 
 def test_open_findings_exclude_resolved_ones() -> None:
@@ -280,6 +427,7 @@ def test_the_payload_carries_every_field_the_badge_reads() -> None:
         "max_age_hours",
         "last_scheduled_finish",
         "last_investigation",
+        "ongoing_investigations",
         "open_findings",
         "worst_finding",
     }

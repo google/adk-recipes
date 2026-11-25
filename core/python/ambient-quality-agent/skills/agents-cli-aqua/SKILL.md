@@ -63,7 +63,9 @@ deployment record and dashboard URL, or one value with `--resource`,
   at a time.
 - **Insight**: one deduplicated defect with a stable `insight_id` and status
   `NEW`, `RECURRING` or `RESOLVED`. An insight unseen for 14 days (by default)
-  resolves, and a later recurrence gets a new insight.
+  resolves, and a later recurrence gets a new insight. Only a sweep that judged
+  at least one trajectory ages insights out, so a telemetry or reviewer outage
+  does not resolve a live defect.
 - **Occurrence**: one investigation's sighting of an insight, with evidence for
   up to 10 of its trajectories.
 - **Root cause**: a diagnosis of an insight, with proposed edits against a

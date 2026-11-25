@@ -312,6 +312,36 @@ def test_a_day_is_counted_once_per_outcome(
     ]
 
 
+def test_a_days_estimate_counts_each_trajectory_as_one_over_its_probability(
+    writer: InMemoryTrajectoryStore, reader: InMemoryTrajectoryReader
+) -> None:
+    writer.record_investigation_trajectories(
+        [
+            _trajectory("run-1", "chat-1", inclusion_probability=0.5),
+            _trajectory("run-1", "chat-2", inclusion_probability=0.25),
+            _trajectory(
+                "run-1",
+                "chat-3",
+                created_at=_NOW + dt.timedelta(days=1),
+                inclusion_probability=0.5,
+            ),
+            # Recorded without a probability, which leaves its day unestimated.
+            _trajectory(
+                "run-1", "chat-4", created_at=_NOW + dt.timedelta(days=1)
+            ),
+        ]
+    )
+
+    counts = reader.count_daily_outcomes()
+
+    assert [
+        (row.trajectories, row.estimated_trajectories) for row in counts
+    ] == [
+        (2, 6.0),
+        (2, None),
+    ]
+
+
 def test_a_day_with_no_trajectories_is_absent_rather_than_zero(
     writer: InMemoryTrajectoryStore, reader: InMemoryTrajectoryReader
 ) -> None:

@@ -289,6 +289,7 @@ async def preview_custom_investigation(
     window_start: str,
     window_end: str,
     session_review_focus: str = "",
+    sampling: str = "",
 ) -> dict[str, Any]:
     """Show what a SQL selector would pick out before any investigation runs it.
 
@@ -331,6 +332,13 @@ async def preview_custom_investigation(
             only failures caused by the booking tool". It narrows what is
             reported, not what is looked for: the review runs unchanged and
             findings outside the focus are left out. Empty reports everything.
+        sampling: How the investigation picks conversations from the matches
+            when there are more than its budget: "uniform" gives every match
+            the same chance, "weighted" picks matches with risk signals (errors,
+            abnormal model stops, failures a tool reported, unusually busy,
+            costly or slow turns) more often. Empty, the default, is
+            "uniform", since the selector already chose the slice. The
+            examples are sampled the same way.
 
     Returns:
         Preview results containing matched conversation examples, scan counts,
@@ -356,6 +364,7 @@ async def preview_custom_investigation(
             selector_sql=selector_sql,
             window_start=window_start,
             window_end=window_end,
+            sampling=sampling,
         )
     except ValueError as exc:
         # A malformed request rather than a refused selector, so it spends no
@@ -367,6 +376,7 @@ async def preview_custom_investigation(
     payload = {
         **result.to_payload(),
         "session_review_focus": session_review_focus,
+        "sampling": sampling,
     }
     if result.is_valid and not result.timed_out:
         # A preview that ran out of time refused nothing, but it read nothing
@@ -454,6 +464,7 @@ async def start_custom_investigation(
     window_start: str,
     window_end: str,
     session_review_focus: str = "",
+    sampling: str = "",
 ) -> dict[str, Any]:
     """Schedule a background investigation over the conversations a selector picks.
 
@@ -482,6 +493,9 @@ async def start_custom_investigation(
             only failures caused by the booking tool". It narrows what is
             reported, not what is looked for: the review runs unchanged and
             findings outside the focus are left out. Empty reports everything.
+        sampling: How the investigation picks conversations from the matches
+            when there are more than its budget, as in
+            `preview_custom_investigation`; pass the value the preview used.
     """
     from ambient_quality_agent.core.investigation import preview
     from ambient_quality_agent.core.investigation.job_scheduling import (
@@ -499,6 +513,7 @@ async def start_custom_investigation(
             selector_sql=selector_sql,
             window_start=window_start,
             window_end=window_end,
+            sampling=sampling,
         )
     except ValueError as exc:
         return {"error": f"Cannot run this selector: {exc}"}
@@ -519,9 +534,12 @@ async def start_custom_investigation(
             tool_context,
             window_start=window_start or None,
             window_end=window_end or None,
-            custom_overrides=CustomOverrides(
-                selector_sql=selector_sql,
-                review_focus=session_review_focus,
+            custom_overrides=CustomOverrides.model_validate(
+                {
+                    "selector_sql": selector_sql,
+                    "review_focus": session_review_focus,
+                    "sampling": sampling,
+                }
             ),
         )
     except Exception as exc:

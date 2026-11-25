@@ -150,6 +150,18 @@ describe("what the list says", () => {
     await waitFor(() => expect(button()).toBeDisabled());
     expect(button()).toHaveTextContent("Running…");
   });
+
+  it("notes a scheduled update-triggered investigation while keeping manual starts enabled", async () => {
+    mount([
+      {
+        ...buildInvestigation("scheduled", 1),
+        due_at: new Date(NOW + 15 * 60_000).toISOString(),
+      },
+    ]);
+    expect(await screen.findByText(/Scheduled for/)).toBeInTheDocument();
+    expect(button()).toBeEnabled();
+    expect(button()).toHaveTextContent("Run investigation");
+  });
 });
 
 describe("starting one", () => {

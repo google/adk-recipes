@@ -27,7 +27,9 @@ The two query shapes mirror the two evaluation scopes in Gemini platform:
   (invocation-level).
 
 Both read a selected session's or invocation's events only within
-`JOIN_BACK_MARGIN_DAYS` of the window (see `build_join_back_window`).
+`JOIN_BACK_MARGIN_DAYS` of the window (see `build_join_back_window`). Weighted
+sampling scores a session or invocation on the events it recorded in the
+window (`_build_measures_sql`).
 """
 
 from __future__ import annotations
@@ -46,7 +48,7 @@ from agentplatform._genai.types.evals import (
     ConversationTurn,
 )
 from ambient_quality_agent.tools.evaluation.models import MetricType
-from ambient_quality_agent.tools.ingestion import selector
+from ambient_quality_agent.tools.ingestion import sampling, selector
 from ambient_quality_agent.tools.ingestion.base import (
     BigQueryJobFetcher,
     build_join_back_window,
@@ -214,10 +216,6 @@ _SINGLE_TURN_TARGETS = f"""
   GROUP BY invocation_id
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
 
-_SINGLE_TURN_COUNT_SQL = (
-    f"SELECT COUNT(*) AS scanned FROM ({_SINGLE_TURN_TARGETS})"  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
-)
-
 # Targets population grouped by the observed-agent expression, returned by
 # `count_by_agent` when the configured agent name matches nothing.
 _MULTI_TURN_COUNT_BY_AGENT_SQL = f"""
@@ -239,39 +237,203 @@ _SINGLE_TURN_COUNT_BY_AGENT_SQL = f"""
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
 
 
-def _build_scanned_count_sql(targets: str) -> str:
-    """Build a query calculating the total count of matching target records.
+# Event types that record a failure. Ingestion does not read NODE_ERROR rows,
+# but a failed workflow node still marks the trajectory for weighting.
+_WEIGHTED_ERROR_EVENTS_SQL = (
+    "'TOOL_ERROR', 'LLM_ERROR', 'AGENT_ERROR', 'INVOCATION_ERROR', 'NODE_ERROR'"
+)
+
+# An empty string records no reason.
+_FINISH_REASON_SQL = "NULLIF(JSON_VALUE(attributes, '$.finish_reason'), '')"
+
+# The plugin sets `cache_type` on every final model response and
+# `finish_reason` when the model reported one; streamed partial chunks carry
+# neither, so a turn with a final response counts only those. Plugin versions
+# that set neither, such as ADK 1.35's, mark no response final, and a turn
+# without one counts every response, as the plugin's own views do.
+_TERMINAL_RESPONSE_SQL = (
+    "event_type = 'LLM_RESPONSE' AND ("
+    f"{_FINISH_REASON_SQL} IS NOT NULL"
+    " OR JSON_VALUE(attributes, '$.cache_type') IS NOT NULL)"
+)
+
+_USAGE_COUNT_SQL = (
+    "SAFE_CAST(JSON_VALUE(attributes, '$.usage_metadata.total_token_count')"
+    " AS INT64)"
+)
+
+# ADK's built-in tool that hands a turn to another agent: it routes the turn
+# rather than doing its work, and the plugin's own views leave it out of tool
+# calls.
+_TRANSFER_TOOL = "transfer_to_agent"
+
+# Fields of a tool result that report a failure when they hold anything.
+_TOOL_ERROR_FIELDS = ("error", "errors", "error_code", "errorCode")
+
+# Fields of a tool result that report a failure when they are this boolean.
+_TOOL_ERROR_FLAGS = (
+    ("is_error", "true"),
+    ("isError", "true"),
+    ("success", "false"),
+)
+
+
+def _build_non_empty_json_sql(value: str) -> str:
+    """Builds the test for a JSON value that holds something.
 
     Args:
-        targets: Target selection subquery SQL fragment.
+        value: A JSON expression, possibly NULL.
 
     Returns:
-        SQL query returning the total record count as ``scanned``.
+        A BOOL expression: true for a non-empty string, array or object, a
+        non-zero number, or ``true``; false for anything else, including NULL
+        and JSON ``null``.
     """
-    return f"SELECT COUNT(*) AS scanned FROM ({targets})"  # noqa: S608 - may embed agent selector SQL, gated by precheck_selector's table guard and dry-run allowlist
+    return f"""CASE JSON_TYPE({value})
+            WHEN 'string' THEN JSON_VALUE({value}) != ''
+            WHEN 'number' THEN SAFE_CAST(JSON_VALUE({value}) AS FLOAT64) != 0
+            WHEN 'boolean' THEN JSON_VALUE({value}) = 'true'
+            WHEN 'array' THEN ARRAY_LENGTH(JSON_QUERY_ARRAY({value})) > 0
+            WHEN 'object' THEN ARRAY_LENGTH(JSON_KEYS({value}, 1)) > 0
+            ELSE FALSE END"""
 
 
-def _build_multi_turn_sql(targets: str, table_ref: str) -> str:
-    """Build the session-level ingestion query over ``targets``.
+def _build_tool_reported_error_sql() -> str:
+    """Builds the test for a ``TOOL_COMPLETED`` row whose result reports a failure.
 
-    Random sampling and limit application occur inside the CTE to ensure
-    unbiased sampling when matches exceed the evaluation budget.
+    ADK 1.35's plugin records a tool that returns a failure, rather than
+    raising one, as completed, so no error event marks it. Later versions
+    record a result with ``is_error`` or ``isError`` true as an error, which
+    ``has_error`` counts.
+
+    Returns:
+        A BOOL expression over one row: true for a result with a non-empty
+        `_TOOL_ERROR_FIELDS` field, or a `_TOOL_ERROR_FLAGS` field holding its
+        boolean; false otherwise.
+    """
+    tests = [
+        _build_non_empty_json_sql(f"JSON_QUERY(content, '$.result.{field}')")
+        for field in _TOOL_ERROR_FIELDS
+    ] + [
+        f"(JSON_TYPE(JSON_QUERY(content, '$.result.{field}')) = 'boolean'"
+        f" AND JSON_VALUE(content, '$.result.{field}') = '{value}')"
+        for field, value in _TOOL_ERROR_FLAGS
+    ]
+    # A flag test on a missing field is NULL, which would make the whole test
+    # NULL for a result that reports no failure.
+    return "event_type = 'TOOL_COMPLETED' AND COALESCE(\n          " + (
+        "\n          OR ".join(tests) + ", FALSE)"
+    )
+
+
+def _build_measures_sql(id_column: str, table_ref: str) -> str:
+    """Builds the risk measures of each session or invocation in the window.
+
+    A turn is an invocation. The properties, per `sampling.MEASURE_COLUMNS`:
+
+    - ``has_error``: an error event, from a tool, the model, an agent, the run
+      or a workflow node.
+    - ``has_abnormal_finish``: a model response whose finish reason is not
+      in `sampling.NORMAL_FINISH_REASONS`, such as ``MAX_TOKENS``, ``SAFETY``
+      or ``MALFORMED_FUNCTION_CALL``. Such a response has status ``OK`` and
+      no error event.
+    - ``has_tool_reported_error``: a ``TOOL_COMPLETED`` row whose result
+      reports a failure (`_build_tool_reported_error_sql`).
+    - ``busy_turn_calls``: the most ``TOOL_STARTING`` rows for one tool other
+      than ``transfer_to_agent`` in one invocation.
+    - ``total_tokens``: ``usage_metadata.total_token_count`` over the final
+      model responses, or over every response of a turn that has none. On
+      ADK 1.x with streaming, such a turn also counts the partial chunks.
+    - ``slowest_turn_ms``: the longest time from an invocation's first event in
+      the window to its last.
 
     Args:
-        targets: Targets CTE SQL fragment projecting ``session_id``.
+        id_column: The unit measured: ``session_id`` or ``invocation_id``.
+        table_ref: Fully-qualified agent events table.
+
+    Returns:
+        SQL subquery projecting `id_column` and `sampling.MEASURE_COLUMNS`.
+    """
+    if id_column == "invocation_id":
+        turn_keys = "invocation_id"
+        same_turn = "tools.invocation_id = turns.invocation_id"
+    else:
+        turn_keys = f"{id_column}, invocation_id"
+        # A row without an invocation is still one turn of its session.
+        same_turn = (
+            f"tools.{id_column} = turns.{id_column}"
+            " AND tools.invocation_id IS NOT DISTINCT FROM turns.invocation_id"
+        )
+    window = f"""timestamp BETWEEN @window_start AND @window_end
+      AND {_OBSERVED_AGENT_NAME_SQL} = @agent_name
+      AND {id_column} IS NOT NULL"""
+    return f"""
+  SELECT
+    turns.{id_column},
+    LOGICAL_OR(turns.has_error) AS has_error,
+    LOGICAL_OR(turns.has_abnormal_finish) AS has_abnormal_finish,
+    LOGICAL_OR(tools.has_tool_reported_error) AS has_tool_reported_error,
+    MAX(tools.busy_turn_calls) AS busy_turn_calls,
+    SUM(turns.total_tokens) AS total_tokens,
+    MAX(turns.turn_ms) AS slowest_turn_ms
+  FROM (
+    SELECT
+      {turn_keys},
+      LOGICAL_OR(event_type IN ({_WEIGHTED_ERROR_EVENTS_SQL})) AS has_error,
+      LOGICAL_OR(
+        event_type = 'LLM_RESPONSE'
+          AND {sampling.build_abnormal_finish_sql(_FINISH_REASON_SQL)}
+      ) AS has_abnormal_finish,
+      IF(
+        LOGICAL_OR({_TERMINAL_RESPONSE_SQL}),
+        SUM(IF({_TERMINAL_RESPONSE_SQL}, {_USAGE_COUNT_SQL}, NULL)),
+        SUM(IF(event_type = 'LLM_RESPONSE', {_USAGE_COUNT_SQL}, NULL))
+      ) AS total_tokens,
+      TIMESTAMP_DIFF(MAX(timestamp), MIN(timestamp), MILLISECOND) AS turn_ms
+    FROM `{table_ref}`
+    WHERE {window}
+    GROUP BY {turn_keys}
+  ) AS turns
+  LEFT JOIN (
+    SELECT
+      {turn_keys},
+      LOGICAL_OR(has_tool_reported_error) AS has_tool_reported_error,
+      MAX(calls) AS busy_turn_calls
+    FROM (
+      SELECT
+        {turn_keys},
+        JSON_VALUE(content, '$.tool') AS tool,
+        LOGICAL_OR({_build_tool_reported_error_sql()}) AS has_tool_reported_error,
+        -- A tool whose calls started before the window has no calls in it.
+        NULLIF(COUNTIF(event_type = 'TOOL_STARTING'), 0) AS calls
+      FROM `{table_ref}`
+      WHERE {window}
+        AND event_type IN ('TOOL_STARTING', 'TOOL_COMPLETED')
+        AND JSON_VALUE(content, '$.tool') IS DISTINCT FROM '{_TRANSFER_TOOL}'
+      GROUP BY {turn_keys}, tool
+    )
+    GROUP BY {turn_keys}
+  ) AS tools ON {same_turn}
+  GROUP BY turns.{id_column}
+"""  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+
+
+def _build_multi_turn_sql(target_ctes: str, table_ref: str) -> str:
+    """Build the session-level ingestion query over the sampled sessions.
+
+    Args:
+        target_ctes: Common table expressions ending in ``TargetSessions``,
+            which projects ``session_id`` and ``sampling``.
         table_ref: Fully-qualified table containing raw event telemetry.
 
     Returns:
         Complete multi-turn SQL query.
     """
     return f"""
-WITH TargetSessions AS (
-{targets}
-  ORDER BY RAND()
-  LIMIT @limit
-)
+WITH {target_ctes}
 SELECT
   e.session_id,
+  ANY_VALUE(t.{sampling.SAMPLING_COLUMN}) AS {sampling.SAMPLING_COLUMN},
   ARRAY_AGG(
     STRUCT(
       e.invocation_id,
@@ -318,15 +480,22 @@ GROUP BY e.session_id
 """  # noqa: S608 - may embed agent selector SQL, gated by precheck_selector's table guard and dry-run allowlist
 
 
-# Samples invocations directly up to the evaluation budget for single-turn evaluation.
-_SINGLE_TURN_SQL = f"""
-WITH TargetInvocations AS (
-{_SINGLE_TURN_TARGETS}
-  ORDER BY RAND()
-  LIMIT @limit
-)
+def _build_single_turn_sql(target_ctes: str, table_ref: str) -> str:
+    """Build the invocation-level ingestion query over the sampled invocations.
+
+    Args:
+        target_ctes: Common table expressions ending in ``TargetInvocations``,
+            which projects ``invocation_id`` and ``sampling``.
+        table_ref: Fully-qualified table containing raw event telemetry.
+
+    Returns:
+        Complete single-turn SQL query.
+    """
+    return f"""
+WITH {target_ctes}
 SELECT
   e.invocation_id,
+  ANY_VALUE(t.{sampling.SAMPLING_COLUMN}) AS {sampling.SAMPLING_COLUMN},
   -- The conversation this turn was part of, so a reader can walk from one to
   -- the other. Not used to build the case, whose id is the invocation.
   ANY_VALUE(e.session_id) AS session_id,
@@ -349,7 +518,7 @@ SELECT
     )
     ORDER BY e.timestamp ASC
   ) AS events
-FROM `{{table_ref}}` AS e
+FROM `{table_ref}` AS e
 JOIN TargetInvocations AS t USING (invocation_id)
 WHERE {_JOIN_BACK_WINDOW}
   AND e.event_type IN (
@@ -390,17 +559,29 @@ class BigQueryFetcher(BigQueryJobFetcher):
     )
     SCHEMA_FILE = "agent_events.schema.json"
 
+    def _resolve_candidates(self, metric_type: MetricType) -> tuple[str, str]:
+        if metric_type is MetricType.MULTI_TURN:
+            return self._resolve_multi_turn_targets(), "session_id"
+        return self._substitute_table_ref(_SINGLE_TURN_TARGETS), "invocation_id"
+
     def _build_ingestion_sql(self, metric_type: MetricType) -> str:
         if metric_type is MetricType.MULTI_TURN:
             return _build_multi_turn_sql(
-                self._resolve_multi_turn_targets(), self.table_ref
+                self._build_target_ctes(metric_type, "TargetSessions"),
+                self.table_ref,
             )
-        return self._substitute_table_ref(_SINGLE_TURN_SQL)
+        return _build_single_turn_sql(
+            self._build_target_ctes(metric_type, "TargetInvocations"),
+            self.table_ref,
+        )
 
-    def _build_count_sql(self, metric_type: MetricType) -> str:
-        if metric_type is MetricType.MULTI_TURN:
-            return _build_scanned_count_sql(self._resolve_multi_turn_targets())
-        return self._substitute_table_ref(_SINGLE_TURN_COUNT_SQL)
+    def _build_measures_sql(self, metric_type: MetricType) -> str:
+        return _build_measures_sql(
+            "session_id"
+            if metric_type is MetricType.MULTI_TURN
+            else "invocation_id",
+            self.table_ref,
+        )
 
     def _build_count_by_agent_sql(self, metric_type: MetricType) -> str:
         if metric_type is MetricType.MULTI_TURN:

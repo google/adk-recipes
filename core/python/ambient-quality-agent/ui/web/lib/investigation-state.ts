@@ -30,6 +30,8 @@ export interface InvestigationLike {
   created_at?: string | null;
   /** Fallback timestamp when `created_at` is absent on the record. */
   window_end?: string | null;
+  /** When a `scheduled` investigation's delayed trigger is due to fire. */
+  due_at?: string | null;
   /** How far the investigation got, whose `updated_at` is its last sign of
    *  life. */
   progress?: { updated_at: string } | null;
@@ -54,6 +56,11 @@ export const IN_FLIGHT_STATUSES = ["pending", "running"];
  *  and short enough that a wedged record is not a lasting lockout. */
 export const STALE_AFTER_MS = 30 * 60 * 1000;
 
+/** How long past `due_at` a `scheduled` investigation still counts as queued
+ *  before its delayed trigger is treated as overdue/lost
+ *  (`SCHEDULED_INVESTIGATION_GRACE_MINUTES` in `tools/investigations/models.py`). */
+export const SCHEDULED_GRACE_MS = 60 * 60 * 1000;
+
 /** How often the list is re-read while something is in flight. Also the
  *  duration the button's fill animates over, so the bar reaching the far edge
  *  and the refresh happening are the same event. */
@@ -65,7 +72,10 @@ export function startedAt(
   investigation: InvestigationLike | null | undefined,
 ): number | null {
   const t = Date.parse(
-    (investigation && (investigation.created_at || investigation.window_end)) ||
+    (investigation &&
+      (investigation.created_at ||
+        investigation.due_at ||
+        investigation.window_end)) ||
       "",
   );
   return Number.isFinite(t) ? t : null;
@@ -194,4 +204,83 @@ export function resolveNewestInvestigation<T extends InvestigationLike>(
         : best,
     investigations[0] ?? null,
   );
+}
+
+/** Whether a `scheduled` investigation is still within its due-time grace
+ *  window (`ongoing.is_ongoing_investigation` in `tools/investigations/ongoing.py`).
+ *
+ * Args:
+ *   investigation: Investigation record to check.
+ *   now: Reference epoch timestamp in milliseconds; defaults to the current time.
+ *
+ * Returns:
+ *   True if `investigation` is `scheduled` and not past `due_at + SCHEDULED_GRACE_MS`.
+ */
+export function isScheduledActive(
+  investigation: InvestigationLike | null | undefined,
+  now: number = Date.now(),
+): boolean {
+  if (String(investigation?.status || "").toLowerCase() !== "scheduled") {
+    return false;
+  }
+  const due = Date.parse(investigation?.due_at || "");
+  if (!Number.isFinite(due)) return true;
+  return now <= due + SCHEDULED_GRACE_MS;
+}
+
+/** Active `scheduled` investigations within their due-time grace window,
+ *  ordered newest first. */
+export function listScheduledInvestigations<T extends InvestigationLike>(
+  investigations: readonly T[] | null | undefined,
+  now: number = Date.now(),
+): T[] {
+  return newestFirst(
+    (investigations || []).filter((investigation) =>
+      isScheduledActive(investigation, now),
+    ),
+  );
+}
+
+/** Investigations currently running/queued (`pending`/`running` within
+ *  `STALE_AFTER_MS`) or awaiting a delayed update trigger (`scheduled` within
+ *  `SCHEDULED_GRACE_MS`), ordered newest first. */
+export function listOngoingInvestigations<T extends InvestigationLike>(
+  investigations: readonly T[] | null | undefined,
+  now: number = Date.now(),
+): T[] {
+  return newestFirst(
+    (investigations || []).filter(
+      (investigation) =>
+        isInFlight(investigation, now) || isScheduledActive(investigation, now),
+    ),
+  );
+}
+
+/** Renders a one-line summary of already-filtered ongoing investigations, or
+ *  null when empty. Partitioned by
+ *  status rather than re-filtered against the browser clock so server-filtered
+ *  lists cannot disappear under client clock skew. */
+export function renderOngoingNote(
+  ongoing: readonly InvestigationLike[] | null | undefined,
+  formatDue: (iso: string | null | undefined) => string,
+): string | null {
+  const inFlight: InvestigationLike[] = [];
+  const scheduled: InvestigationLike[] = [];
+  for (const inv of ongoing || []) {
+    const status = String(inv?.status || "").toLowerCase();
+    if (IN_FLIGHT_STATUSES.includes(status)) inFlight.push(inv);
+    else if (status === "scheduled") scheduled.push(inv);
+  }
+  if (inFlight.length === 0 && scheduled.length === 0) return null;
+  if (inFlight.length > 0 && scheduled.length > 0) {
+    return `${inFlight.length} ${inFlight.length === 1 ? "investigation" : "investigations"} running, ${scheduled.length} scheduled`;
+  }
+  if (inFlight.length > 0) {
+    return `${inFlight.length} ${inFlight.length === 1 ? "investigation" : "investigations"} running`;
+  }
+  const first = scheduled[0];
+  if (scheduled.length === 1 && first?.due_at) {
+    return `Scheduled for ${formatDue(first.due_at)}`;
+  }
+  return `${scheduled.length} ${scheduled.length === 1 ? "investigation" : "investigations"} scheduled`;
 }

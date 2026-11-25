@@ -200,6 +200,7 @@ CANCELLED_EVENT_TEXT = "**Cancelled:** _A user cancelled this investigation._\n"
 WATCHING = "watching"
 OVERDUE = "overdue"
 NEVER = "never"
+DISABLED = "disabled"
 """Verdicts `_get_ambient_health` returns. Hand-copies of the names in
 `investigations.health`; `failing` is absent because nothing here decides a
 sweep failed."""
@@ -1045,6 +1046,7 @@ def _list_agents(data: Dataset) -> dict[str, Any]:
                 "scheduled_trigger_enabled": data.scheduled_trigger_enabled,
                 "updated_at": data.agent_updated_at,
                 "unapplied_fields": [],
+                "update_trigger_enabled": False,
                 "grants": [],
                 "watched": True,
             }
@@ -1062,15 +1064,27 @@ def _show_config(data: Dataset) -> dict[str, Any]:
 
     Returns:
         Dictionary matching the `config` response: the generated configuration
-        including the attachment's key, which the engine sets from the
-        attachment.
+        including the attachment's key, ambient trigger status, and ongoing
+        investigations.
     """
+    data.settle_due()
+    in_flight = [r for r in reversed(data.runs) if _is_running(r)]
     return {
         "config": {
             **data.config,
             "agent_key": data.agent_key,
             SELECTOR_FIELD: data.investigation_selector_sql,
         },
+        "ambient": {
+            "attached": True,
+            "scheduled_trigger_enabled": data.scheduled_trigger_enabled,
+            "investigation_schedule": data.investigation_schedule,
+            "update_trigger_enabled": False,
+            "observed_engine_id": "",
+        },
+        "ongoing_investigations": [
+            _format_ongoing_investigation(r) for r in in_flight
+        ],
         "starter_selector": _build_starter_selector(data.config),
     }
 
@@ -1271,7 +1285,9 @@ def _get_ambient_health(data: Dataset) -> dict[str, Any]:
         default=None,
     )
 
-    if not finished:
+    if not data.scheduled_trigger_enabled and not in_flight:
+        verdict, reason = DISABLED, "Automatic investigations are off."
+    elif not finished:
         verdict, reason = NEVER, "No sweep has ever finished."
     elif in_flight:
         verdict, reason = OVERDUE, f"{len(in_flight)} sweep(s) running now."
@@ -1292,6 +1308,9 @@ def _get_ambient_health(data: Dataset) -> dict[str, Any]:
         "last_investigation": _format_last_investigation(last_run)
         if last_run
         else None,
+        "ongoing_investigations": [
+            _format_ongoing_investigation(r) for r in reversed(in_flight)
+        ],
         "open_findings": len(open_findings),
         "worst_finding": {
             "insight_id": str(worst.get("insight_id") or ""),
@@ -1299,6 +1318,27 @@ def _get_ambient_health(data: Dataset) -> dict[str, Any]:
         }
         if worst
         else None,
+    }
+
+
+def _format_ongoing_investigation(run: dict[str, Any]) -> dict[str, Any]:
+    """Formats an active mock investigation into the ongoing summary shape.
+
+    Args:
+        run: Mock investigation dictionary.
+
+    Returns:
+        Summary dictionary matching `ongoing.format_ongoing_investigation`.
+    """
+    return {
+        "investigation_id": str(run.get("investigation_id") or ""),
+        "status": str(run.get("status") or ""),
+        "trigger_type": str(run.get("trigger_type") or ""),
+        "created_at": run.get("created_at"),
+        "due_at": run.get("due_at"),
+        "window_start": run.get("window_start"),
+        "window_end": run.get("window_end"),
+        "progress": run.get("progress"),
     }
 
 
@@ -1327,19 +1367,47 @@ def _format_last_investigation(run: dict[str, Any]) -> dict[str, Any]:
         run: Completed investigation dictionary.
 
     Returns:
-        Formatted summary dictionary with trajectory counts and pass rate.
+        Formatted summary dictionary with trajectory counts, the sample's pass
+        rate and the pass rate estimated for all traffic, as
+        `investigations.health` formats it.
     """
     counters = run.get("counters") or {}
     evaluated = int(counters.get("trajectories_evaluated") or 0)
     passed = int(counters.get("trajectories_eval_passed") or 0)
+    judged = passed + int(counters.get("trajectories_eval_failed") or 0)
+    estimated_passed = int(
+        counters.get("estimated_trajectories_eval_passed") or 0
+    )
+    estimated_judged = estimated_passed + int(
+        counters.get("estimated_trajectories_eval_failed") or 0
+    )
     return {
         "investigation_id": str(run.get("investigation_id") or ""),
         "finished_at": run.get("finished_at"),
         "status": str(run.get("status") or ""),
         "trigger_type": str(run.get("trigger_type") or ""),
         "trajectories": evaluated or None,
-        "trajectories_passed": passed if evaluated else None,
-        "pass_rate": (passed / evaluated) if evaluated else None,
+        "trajectories_judged": judged or None,
+        "trajectories_passed": passed if judged else None,
+        "trajectories_errored": (
+            int(counters.get("trajectories_eval_errored") or 0)
+            if evaluated
+            else None
+        ),
+        "pass_rate": (passed / judged) if judged else None,
+        "estimated_pass_rate": (
+            estimated_passed / estimated_judged if estimated_judged else None
+        ),
+        "trajectories_scanned": (
+            int(counters.get("trajectories_scanned") or 0)
+            if evaluated
+            else None
+        ),
+        "trajectories_with_risk_signals": (
+            int(counters.get("trajectories_evaluated_with_risk_signals") or 0)
+            if evaluated
+            else None
+        ),
     }
 
 
@@ -1416,6 +1484,14 @@ def _list_insights(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
             "error": f"invalid has_root_cause {has_root_cause!r}; expected "
             "'true', 'false', or ''."
         }
+    # As `_build_insight_filters` matches it: label contains, or id starts with.
+    if needle := str(args.get("query") or "").strip().lower():
+        insights = [
+            i
+            for i in insights
+            if needle in str(i.get("label") or "").lower()
+            or str(i.get("insight_id") or "").lower().startswith(needle)
+        ]
     # On `updated_at` -- the last sighting -- as `_build_insight_filters` does.
     window_start = str(args.get("window_start") or "")
     window_end = str(args.get("window_end") or "")
@@ -1428,10 +1504,14 @@ def _list_insights(data: Dataset, args: dict[str, Any]) -> dict[str, Any]:
 
     # Ranked over everything that matched and only then sliced, as the ``ORDER
     # BY ... LIMIT`` does. A mock that paged an unranked list would hand the
-    # dashboard a first page the deployment would never send. Impact ranks on
-    # the folded `trajectory_count`, so the views are built before the sort.
+    # dashboard a first page the deployment would never send.
+    windows = _list_share_windows(data)
     views = _sort_insight_views(
-        [_build_insight_view(data, i) for i in insights], order_by
+        [
+            _build_insight_view(data, i, investigation_id, windows)
+            for i in insights
+        ],
+        order_by,
     )
     page = views[offset : offset + page_size]
     next_offset = offset + len(page)
@@ -1506,7 +1586,9 @@ def _parse_page_number(requested: Any) -> int:
 def _sort_insight_views(
     views: list[dict[str, Any]], order_by: str
 ) -> list[dict[str, Any]]:
-    """Sorts insight views by recent timestamp or impact count with ID tie-breaking.
+    """Sorts insight views by recent timestamp or impact with ID tie-breaking.
+
+    Impact is each view's ``impact`` (`_compute_impact`).
 
     Args:
         views: List of insight view dictionaries.
@@ -1519,7 +1601,7 @@ def _sort_insight_views(
         return sorted(
             views,
             key=lambda v: (
-                -int(v.get("trajectory_count") or 0),
+                -float(v.get("impact") or 0),
                 str(v.get("insight_id") or ""),
             ),
         )
@@ -1528,14 +1610,117 @@ def _sort_insight_views(
     return ordered
 
 
+def _list_share_windows(data: Dataset) -> dict[str, tuple[str, int]]:
+    """Lists the investigations an insight's share is estimated from.
+
+    `reader.is_share_investigation`: an investigation with estimates, a
+    counted window, a window end and no selector. The generated
+    investigations carry no effective config, and so no stored selector,
+    which leaves a custom one to check.
+
+    Args:
+        data: Active mock dataset.
+
+    Returns:
+        Each such investigation's window end and `trajectories_scanned`,
+        keyed by id.
+    """
+    windows: dict[str, tuple[str, int]] = {}
+    for run in data.runs:
+        counters = run.get("counters") or {}
+        scanned = int(counters.get("trajectories_scanned") or 0)
+        estimated_judged = int(
+            counters.get("estimated_trajectories_eval_passed") or 0
+        ) + int(counters.get("estimated_trajectories_eval_failed") or 0)
+        selector_sql = (run.get("custom_overrides") or {}).get("selector_sql")
+        if (
+            run.get("window_end")
+            and estimated_judged > 0
+            and scanned > 0
+            and not selector_sql
+        ):
+            windows[str(run.get("investigation_id"))] = (
+                str(run["window_end"]),
+                scanned,
+            )
+    return windows
+
+
+def _compute_estimated_share(
+    owned: list[dict[str, Any]],
+    windows: dict[str, tuple[str, int]],
+    investigation_id: str,
+) -> float | None:
+    """Estimates an insight's share of all conversations, as
+    `reader.compute_estimated_share` does.
+
+    Args:
+        owned: The insight's occurrences.
+        windows: `_list_share_windows` of the dataset.
+        investigation_id: When set, the share in that investigation alone.
+
+    Returns:
+        The share, from 0 to 1 unless overlapping occurrences push it
+        higher, or None when no counted investigation saw it.
+    """
+    sighted = [
+        o
+        for o in owned
+        if o.get("estimated_trajectory_count") is not None
+        and o.get("investigation_id") in windows
+        and investigation_id in ("", o.get("investigation_id"))
+    ]
+    if not sighted:
+        return None
+    ends = [windows[str(o["investigation_id"])][0] for o in sighted]
+    first, last = min(ends), max(ends)
+    window_total = sum(
+        scanned
+        for key, (end, scanned) in windows.items()
+        if first <= end <= last and investigation_id in ("", key)
+    )
+    return (
+        sum(float(o["estimated_trajectory_count"]) for o in sighted)
+        / window_total
+        if window_total
+        else None
+    )
+
+
+def _compute_impact(owned: list[dict[str, Any]]) -> float:
+    """Computes an insight's impact, as `reader.compute_impact` does.
+
+    Args:
+        owned: The insight's occurrences.
+
+    Returns:
+        Each occurrence's estimated trajectories, or its trajectory count
+        where it has no estimate, summed.
+    """
+    return sum(
+        float(
+            o.get("trajectory_count") or 0
+            if o.get("estimated_trajectory_count") is None
+            else o["estimated_trajectory_count"]
+        )
+        for o in owned
+    )
+
+
 def _build_insight_view(
-    data: Dataset, insight: dict[str, Any]
+    data: Dataset,
+    insight: dict[str, Any],
+    investigation_id: str = "",
+    windows: dict[str, tuple[str, int]] | None = None,
 ) -> dict[str, Any]:
     """Builds an insight view dictionary with aggregated occurrence metrics.
 
     Args:
         data: Active mock dataset.
         insight: Raw stored insight record.
+        investigation_id: When set, the estimated share is that
+            investigation's alone.
+        windows: `_list_share_windows` of `data`; listed from it when None.
 
     Returns:
         Populated insight view dictionary.
@@ -1543,11 +1728,23 @@ def _build_insight_view(
     insight_id = str(insight.get("insight_id") or "")
     owned = data.list_occurrences(insight_id)
     newest = owned[0] if owned else {}
+    estimates = [
+        float(o["estimated_trajectory_count"])
+        for o in owned
+        if o.get("estimated_trajectory_count") is not None
+    ]
     return {
         **insight,
         "occurrence_count": len(owned),
         "trajectory_count": sum(
             int(o.get("trajectory_count") or 0) for o in owned
+        ),
+        "estimated_trajectory_count": sum(estimates) if estimates else None,
+        "impact": _compute_impact(owned),
+        "estimated_share": _compute_estimated_share(
+            owned,
+            _list_share_windows(data) if windows is None else windows,
+            investigation_id,
         ),
         "last_investigation_id": newest.get("investigation_id"),
         "last_investigation_at": newest.get("created_at"),
@@ -1763,12 +1960,38 @@ def _build_mock_trajectory(
     """
     linkable = index % 3 != 2
     trace_ids = [f"{abs(hash((case_id, index))):032x}"[:32]] if linkable else []
+    # Three of every four trajectories were picked for a risk signal, the
+    # rest at the base weight of 1.
+    costly = index % 4 == 2
+    signals = {
+        "has_error": index % 4 == 0,
+        "has_abnormal_finish": False,
+        "has_tool_reported_error": index % 4 == 3,
+        "busy_turn_calls": 1 + index % 3,
+        "total_tokens": 48_000 if costly else 6_000 + 500 * index,
+        "slowest_turn_ms": 4_000 + 250 * index,
+        "busy_turn_percentile": 0.3 + 0.2 * (index % 3),
+        "cost_percentile": 0.95 if costly else 0.4,
+        "latency_percentile": 0.5,
+        "busy_turn_tail": 0.0,
+        "cost_tail": 0.5 if costly else 0.0,
+        "latency_tail": 0.0,
+    }
+    weight = (
+        1
+        + 4 * signals["has_error"]
+        + signals["has_tool_reported_error"]
+        + signals["cost_tail"]
+    )
     return {
         "investigation_id": investigation_id,
         "trajectory_id": case_id,
         "ingestion_source": "cloud_logging" if linkable else "big_query",
         "source_trace_ids": trace_ids,
         "ingest_status": "ingested",
+        "sampling_weight": weight,
+        "inclusion_probability": min(1.0, weight / 40),
+        "sampling_signals": signals,
         "console_url": (
             f"{_TRACE_CONSOLE_BASE}?project={MOCK_PROJECT}&tid={trace_ids[0]}"
             if trace_ids

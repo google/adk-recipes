@@ -20,6 +20,7 @@ import {
   investigationsQuery,
   type InvestigationListItem,
 } from "@/lib/aqua-api";
+import { hasEstimates } from "@/lib/estimates";
 import { count } from "@/lib/funnel";
 import {
   ABSENT,
@@ -28,6 +29,7 @@ import {
   isAmbient,
   isPastDue,
   formatInvestigationStateWord,
+  passRate,
   renderScheduledText,
 } from "@/lib/investigation-summary";
 import { textStyle } from "@/lib/typography";
@@ -200,10 +202,12 @@ function Outcome({ investigation }: { investigation: InvestigationListItem }) {
   }
   const passed = count(investigation.counters?.trajectories_eval_passed);
   const failed = count(investigation.counters?.trajectories_eval_failed);
-  const judged = passed + failed;
+  // The same pass rate the investigations table shows for the investigation, so
+  // the two agree: estimated for all traffic where it can be.
+  const rate = passRate(investigation);
   // Eval-service errors are no verdict on the agent, so an investigation with
   // nothing else has no share to draw.
-  if (judged === 0) {
+  if (rate === null) {
     return (
       <span
         title="Every evaluation hit an eval service error"
@@ -213,9 +217,10 @@ function Outcome({ investigation }: { investigation: InvestigationListItem }) {
       </span>
     );
   }
-  // The same pass rate the investigations table shows for the investigation, so
-  // the two agree.
-  const ratio = `${passed.toLocaleString()} passed, ${failed.toLocaleString()} failed`;
+  const sample = `${passed.toLocaleString()} passed, ${failed.toLocaleString()} failed`;
+  const ratio = hasEstimates(investigation.counters)
+    ? `${Math.round(rate * 100)}% estimated for all traffic; ${sample} in the sample`
+    : sample;
   return (
     <>
       <span
@@ -224,7 +229,7 @@ function Outcome({ investigation }: { investigation: InvestigationListItem }) {
       >
         <span
           className="block h-full bg-teal-600 dark:bg-teal-400"
-          style={{ width: `${(passed / judged) * 100}%` }}
+          style={{ width: `${rate * 100}%` }}
         />
       </span>
       <span
@@ -234,7 +239,7 @@ function Outcome({ investigation }: { investigation: InvestigationListItem }) {
           "min-w-[3.25rem] shrink-0 text-right",
         )}
       >
-        <span aria-hidden="true">{Math.round((passed / judged) * 100)}%</span>
+        <span aria-hidden="true">{Math.round(rate * 100)}%</span>
         <span className="sr-only">{ratio}</span>
       </span>
     </>

@@ -26,6 +26,7 @@ import {
   createRouter,
   createMemoryHistory,
 } from "@tanstack/react-router";
+import userEvent from "@testing-library/user-event";
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StatBar } from "../stat-bar";
@@ -43,7 +44,9 @@ const healthy: AmbientHealth = {
     status: "done",
     trigger_type: "scheduled",
     trajectories: 410,
+    trajectories_judged: 410,
     trajectories_passed: 295,
+    trajectories_errored: 0,
     pass_rate: 0.7195,
   },
   open_findings: 4,
@@ -109,7 +112,7 @@ describe("StatBar", () => {
     renderPanel(healthy);
 
     expect(await screen.findByText("Watching")).toBeInTheDocument();
-    expect(screen.getByText(/295 of 410 trajectories/)).toBeInTheDocument();
+    expect(screen.getByText(/295 of 410 judged/)).toBeInTheDocument();
     expect(screen.getByText("Open insights")).toBeInTheDocument();
     expect(screen.getByText("Last investigation")).toBeInTheDocument();
     expect(
@@ -117,6 +120,66 @@ describe("StatBar", () => {
     ).toBeInTheDocument();
     // 0.7195 must read as 72%, not 0.7195 or 71.95.
     expect(screen.getByText("72%")).toBeInTheDocument();
+  });
+
+  it("leads with the pass rate estimated for all traffic", async () => {
+    renderPanel({
+      ...healthy,
+      last_investigation: {
+        ...healthy.last_investigation!,
+        trajectories: 1000,
+        trajectories_judged: 1000,
+        trajectories_passed: 720,
+        trajectories_errored: 0,
+        pass_rate: 0.72,
+        estimated_pass_rate: 0.94,
+        trajectories_scanned: 48210,
+        trajectories_with_risk_signals: 312,
+      },
+    });
+
+    expect(await screen.findByText("Estimated pass rate")).toBeInTheDocument();
+    expect(screen.getByText("94%")).toBeInTheDocument();
+    // The sample's own rate over-represents failures, so it is only in the
+    // help, which a keyboard or a tap opens as well as a pointer.
+    expect(screen.queryByText(/passed at 72%/)).toBeNull();
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "About Estimated pass rate" }));
+    expect(
+      await screen.findByRole("dialog", { hidden: true }),
+    ).toHaveTextContent(/The 1,000 judged conversations passed at 72%/);
+    expect(
+      screen.getByText(
+        "Reviewed 1,000 of 48,210 · 312 picked for risk signals",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("rates an older engine's estimate over the conversations it reviewed", async () => {
+    // That engine reports no judged count and rated everything it reviewed,
+    // so the help names the reviewed conversations rather than claiming a
+    // denominator the engine did not use.
+    const { trajectories_judged, trajectories_errored, ...older } =
+      healthy.last_investigation!;
+    renderPanel({
+      ...healthy,
+      last_investigation: {
+        ...older,
+        trajectories: 1000,
+        trajectories_passed: 720,
+        pass_rate: 0.72,
+        estimated_pass_rate: 0.94,
+      },
+    });
+
+    expect(await screen.findByText("Estimated pass rate")).toBeInTheDocument();
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "About Estimated pass rate" }));
+    expect(
+      await screen.findByRole("dialog", { hidden: true }),
+    ).toHaveTextContent(/The 1,000 conversations reviewed passed at 72%/);
   });
 
   it("says so when the schedule has never fired", async () => {
@@ -247,6 +310,9 @@ describe("StatBar", () => {
       last_investigation: {
         ...healthy.last_investigation!,
         trajectories: null,
+        trajectories_judged: null,
+        trajectories_passed: null,
+        trajectories_errored: null,
         pass_rate: null,
       },
     });
@@ -254,7 +320,69 @@ describe("StatBar", () => {
     expect(await screen.findByText("Watching")).toBeInTheDocument();
     expect(screen.getByText("--")).toBeInTheDocument();
     expect(screen.getByText(/No trajectories evaluated/)).toBeInTheDocument();
-    expect(screen.queryByText(/of .* trajectories/)).toBeNull();
+    expect(screen.queryByText(/of .* judged/)).toBeNull();
+  });
+
+  it("counts an errored evaluation beside the rate, not against it", async () => {
+    // The eval service erroring is a failure of the eval service, so the rate
+    // is 6 of the 8 trajectories that reached a verdict, not 6 of 10.
+    renderPanel({
+      ...healthy,
+      last_investigation: {
+        ...healthy.last_investigation!,
+        trajectories: 10,
+        trajectories_judged: 8,
+        trajectories_passed: 6,
+        trajectories_errored: 2,
+        pass_rate: 0.75,
+      },
+    });
+
+    expect(await screen.findByText("75%")).toBeInTheDocument();
+    expect(screen.getByText("6 of 8 judged · 2 errored")).toBeInTheDocument();
+  });
+
+  it("reads an older engine's rate over the denominator that engine used", async () => {
+    // An engine that predates the two counts sends neither, and its pass rate
+    // is a share of every evaluated trajectory. Reading the absent count as
+    // zero would pair 72% with "No trajectory judged".
+    const { trajectories_judged, trajectories_errored, ...older } =
+      healthy.last_investigation!;
+    renderPanel({
+      ...healthy,
+      last_investigation: {
+        ...older,
+        trajectories: 410,
+        trajectories_passed: 295,
+        pass_rate: 0.7195,
+      },
+    });
+
+    expect(await screen.findByText("72%")).toBeInTheDocument();
+    expect(screen.getByText("295 of 410 trajectories")).toBeInTheDocument();
+    expect(screen.queryByText(/judged/)).toBeNull();
+  });
+
+  it("claims nothing about a sweep whose every evaluation errored", async () => {
+    // A reviewer outage across the whole sweep judged nothing. "0%" would
+    // report the outage as the watched agent failing every trajectory.
+    renderPanel({
+      ...healthy,
+      last_investigation: {
+        ...healthy.last_investigation!,
+        trajectories: 50,
+        trajectories_judged: null,
+        trajectories_passed: null,
+        trajectories_errored: 50,
+        pass_rate: null,
+      },
+    });
+
+    expect(await screen.findByText("--")).toBeInTheDocument();
+    expect(screen.queryByText("0%")).toBeNull();
+    expect(
+      screen.getByText("No trajectory judged · 50 errored"),
+    ).toBeInTheDocument();
   });
 
   it("renders Overdue and Disabled verdicts with canonical labels", async () => {
@@ -271,5 +399,22 @@ describe("StatBar", () => {
       reason: "ambient scheduling is turned off",
     });
     expect(await screen.findByText("Disabled")).toBeInTheDocument();
+  });
+
+  it("leads the Ambient note with ongoing investigations instead of hiding them behind the cron", async () => {
+    renderPanel({
+      ...healthy,
+      ongoing_investigations: [
+        {
+          investigation_id: "inv-live",
+          status: "running",
+          created_at: new Date().toISOString(),
+        },
+      ],
+    });
+
+    expect(
+      await screen.findByText(/1 investigation running · daily at 12:00 UTC/),
+    ).toBeInTheDocument();
   });
 });

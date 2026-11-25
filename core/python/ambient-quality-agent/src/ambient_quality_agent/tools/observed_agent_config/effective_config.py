@@ -424,3 +424,83 @@ def serialize_config(config: Config) -> dict[str, Any]:
         Dictionary of primitive configuration values suitable for `json.dumps`.
     """
     return dataclasses.asdict(config)
+
+
+_UNATTACHED_AMBIENT: dict[str, Any] = {
+    "attached": False,
+    "scheduled_trigger_enabled": False,
+    "investigation_schedule": None,
+    "update_trigger_enabled": False,
+    "observed_engine_id": "",
+}
+
+
+def resolve_ambient_status(
+    state: ADKStateLike,
+    *,
+    standalone: bool = False,
+    agent_key: str | None = None,
+) -> dict[str, Any]:
+    """Resolves the continuous-trigger settings for the request's agent.
+
+    Uses the cached default agent key (or `agent_key` when already resolved by
+    the caller) so a single request never fans out into N+1 storage reads, while
+    reading the selected agent's record afresh so a failed storage read is
+    reported under ``error`` rather than mistaken for an active or paused
+    schedule.
+
+    Args:
+        state: Session state, which may select an agent via `AGENT_KEY_STATE`.
+        standalone: Whether this process runs in standalone mode, which has no
+            scheduler or update-trigger sink.
+        agent_key: Optional already-resolved agent key so callers also loading
+            `Config` inspect the same agent.
+
+    Returns:
+        Dictionary with ``attached``, ``scheduled_trigger_enabled``,
+        ``investigation_schedule``, ``update_trigger_enabled``,
+        ``observed_engine_id``, and ``error`` when storage could not be read.
+    """
+    if standalone:
+        return dict(_UNATTACHED_AMBIENT)
+    jobs = objects.jobs_store_factory()
+    try:
+        key = (
+            agent_key
+            or _extract_selected_agent_key(state)
+            or resolve_default_agent_key()
+        )
+        if not key:
+            # `resolve_default_agent_key` swallows read errors as `None`. If any
+            # attachment objects exist, read the first one directly so a broken
+            # bucket surfaces under `error` rather than as unattached.
+            existing = list_agent_keys()
+            if not existing:
+                return dict(_UNATTACHED_AMBIENT)
+            key = existing[0]
+        record = store.get_agent_record(jobs, key)
+    except objects.StorageNotConfiguredError:
+        return dict(_UNATTACHED_AMBIENT)
+    except Exception as exc:
+        logger.warning(
+            "could not read the attachment to resolve ambient status",
+            exc_info=True,
+        )
+        return {
+            "attached": None,
+            "scheduled_trigger_enabled": None,
+            "investigation_schedule": None,
+            "update_trigger_enabled": None,
+            "observed_engine_id": "",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    if record is None:
+        return dict(_UNATTACHED_AMBIENT)
+    return {
+        "attached": True,
+        "scheduled_trigger_enabled": record.scheduled_trigger_enabled,
+        "investigation_schedule": record.investigation_schedule,
+        "update_trigger_enabled": bool(record.observed_engine_id)
+        and not record.list_unapplied_fields(),
+        "observed_engine_id": record.observed_engine_id,
+    }

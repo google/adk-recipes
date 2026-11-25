@@ -124,7 +124,14 @@ export interface InsightView {
   tool_name: string;
   status: "NEW" | "RECURRING" | "RESOLVED";
   occurrence_count: number;
+  /** Reviewed conversations, summed over the occurrences. */
   trajectory_count: number;
+  /** Conversations of all traffic the reviewed ones stand for; null when no
+   *  occurrence has an estimate. */
+  estimated_trajectory_count?: number | null;
+  /** Estimated share, from 0 to 1, of all conversations that show the issue;
+   *  null when it cannot be estimated. */
+  estimated_share?: number | null;
   impact: number;
   last_investigation_id?: string | null;
   last_investigation_at: string | null;
@@ -397,6 +404,28 @@ export interface InsightOccurrence {
   examples?: Array<Record<string, unknown>>;
   /** Root-cause records associated with this occurrence. */
   root_causes?: RootCause[];
+  /** The risk signals behind each trajectory's sampling weight, keyed like
+   *  `console_urls`; a trajectory picked without one has no entry. */
+  sampling_signals?: Record<string, SamplingSignals>;
+}
+
+/** The risk properties weighted sampling scored a trajectory on. Each
+ *  percentile ranks the measure among the window's trajectories, from 0 to 1;
+ *  each tail score is the share of its signal's weight the trajectory got,
+ *  above 0 only in the top of the window. */
+export interface SamplingSignals {
+  has_error: boolean;
+  has_abnormal_finish: boolean;
+  has_tool_reported_error: boolean;
+  busy_turn_calls?: number | null;
+  total_tokens?: number | null;
+  slowest_turn_ms?: number | null;
+  busy_turn_percentile?: number | null;
+  cost_percentile?: number | null;
+  latency_percentile?: number | null;
+  busy_turn_tail: number;
+  cost_tail: number;
+  latency_tail: number;
 }
 
 /** Evaluates whether an individual occurrence is diagnosed via its verification
@@ -501,6 +530,9 @@ export const insightsQuery = (
     /** A UTC day, `YYYY-MM-DD`: only the insights found or resolved on it, with
      *  `status` choosing which of the two. Omit for every day. */
     day?: string;
+    /** Text the label contains or the id starts with, ignoring case. Searched
+     *  over every stored insight, not one page. Omit for no text filter. */
+    query?: string;
   },
 ) => ({
   queryKey: [
@@ -514,6 +546,7 @@ export const insightsQuery = (
     // Page 1 and no page are the same read, so they share one cache entry.
     args?.page && args.page > 1 ? args.page : null,
     args?.day ?? null,
+    args?.query ?? null,
   ] as const,
   queryFn: async (): Promise<InsightsPage> => {
     const params = new URLSearchParams();
@@ -528,6 +561,7 @@ export const insightsQuery = (
     if (args?.orderBy) params.set("orderBy", args.orderBy);
     if (args?.page && args.page > 1) params.set("page", String(args.page));
     if (args?.day) params.set("day", args.day);
+    if (args?.query) params.set("q", args.query);
     const qs = params.toString();
     const page = await getJson<InsightsPage>(
       buildAgentPath(qs ? `/api/insights?${qs}` : "/api/insights", agentKey),
@@ -582,6 +616,29 @@ export async function mergeInsights(
   return { merged: Boolean(body.merged) };
 }
 
+/** Compact summary of an ongoing (`running`, `pending`, or `scheduled`)
+ *  investigation reported by `/api/config` and `/api/health`. */
+export interface OngoingInvestigation {
+  investigation_id: string;
+  status: string;
+  trigger_type?: string | null;
+  created_at?: string | null;
+  due_at?: string | null;
+  window_start?: string | null;
+  window_end?: string | null;
+  progress?: InvestigationProgress | null;
+}
+
+/** Continuous-trigger status reported alongside `/api/config`. */
+export interface AmbientConfigStatus {
+  attached?: boolean | null;
+  scheduled_trigger_enabled: boolean | null;
+  investigation_schedule: string | null;
+  update_trigger_enabled: boolean | null;
+  observed_engine_id: string;
+  error?: string;
+}
+
 /** Whether the ambient loop is turning. Mirrors `investigations/health.py`. */
 export type AmbientVerdict =
   | "watching"
@@ -601,12 +658,33 @@ export interface AmbientHealth {
     finished_at: string | null;
     status: string;
     trigger_type: string;
-    /** Null when the investigation evaluated nothing, never 0. */
+    /** Evaluated trajectories, errored evaluations included. Null when the
+     *  investigation evaluated nothing, never 0. */
     trajectories: number | null;
-    /** Absolute count behind `pass_rate`; null when nothing was evaluated. */
+    /** The denominator of `pass_rate`: trajectories that passed or failed.
+     *  Null when none did, never 0. Absent from an engine that predates it,
+     *  whose `pass_rate` is a share of every evaluated trajectory. */
+    trajectories_judged?: number | null;
+    /** Absolute count behind `pass_rate`; null when nothing was judged. */
     trajectories_passed: number | null;
+    /** Evaluations the eval service errored on, which are no judgement either
+     *  way. Null when the investigation evaluated nothing, and absent from an
+     *  engine that predates it. */
+    trajectories_errored?: number | null;
+    /** The sample's own pass rate: passed over judged, as `passRate` in
+     *  lib/investigation-summary.ts computes it for the investigation lists.
+     *  Null when nothing was judged, including a sweep whose every evaluation
+     *  errored. */
     pass_rate: number | null;
+    /** The pass rate estimated for all traffic in the window; null for an
+     *  investigation recorded without estimates. Absent from older engines. */
+    estimated_pass_rate?: number | null;
+    /** Trajectories in the window, before sampling. */
+    trajectories_scanned?: number | null;
+    /** Evaluated trajectories picked with at least one risk signal. */
+    trajectories_with_risk_signals?: number | null;
   } | null;
+  ongoing_investigations?: OngoingInvestigation[];
   open_findings: number;
   worst_finding: { insight_id: string; label: string } | null;
 }
@@ -633,6 +711,10 @@ export interface ScheduleResponse {
   investigation_schedule?: string;
   /** Whether the agent is investigated on its schedule at all. */
   scheduled_trigger_enabled?: boolean;
+  /** Engine ID whose updates trigger investigations, when recorded. */
+  observed_engine_id?: string;
+  /** Whether the observed engine's update trigger is wired and applied. */
+  update_trigger_enabled?: boolean;
   updated_at?: string | null;
 }
 
@@ -806,6 +888,9 @@ export const sourceQuery = (agentKey: AgentKey) => ({
 
 export interface EffectiveConfigResponse {
   config?: Record<string, unknown>;
+  ambient?: AmbientConfigStatus;
+  ongoing_investigations?: OngoingInvestigation[] | null;
+  ongoing_investigations_error?: string;
   /** The selector that picks what the random sample picks, which a new
    *  selector starts from. */
   starter_selector?: string;
@@ -1053,6 +1138,10 @@ export interface TrajectoryBundle {
   trajectory?: {
     console_url?: string | null;
     ingestion_source?: string | null;
+    /** Null under uniform sampling. */
+    sampling_weight?: number | null;
+    inclusion_probability?: number | null;
+    sampling_signals?: SamplingSignals | null;
   } | null;
 }
 
@@ -1082,6 +1171,11 @@ export interface InvestigationCounters {
   trajectories_eval_passed: number;
   trajectories_eval_failed: number;
   trajectories_eval_errored: number;
+  /** Trajectories of all traffic the sample's passed and failed ones stand
+   *  for; both 0 when the investigation recorded no estimate. */
+  estimated_trajectories_eval_passed: number;
+  estimated_trajectories_eval_failed: number;
+  trajectories_evaluated_with_risk_signals: number;
   rubrics_generated: number;
   findings_generated: number;
   findings_errored: number;

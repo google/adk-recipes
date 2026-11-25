@@ -26,7 +26,9 @@ tables but nothing else.
 
 The reader also reads `ROOT_CAUSES_TABLE`, which the sweep never writes: a
 diagnosis is recorded by a chat turn through `BigQueryRootCauseStore`, and surfaces here
-as a per-insight marker and as the records themselves.
+as a per-insight marker and as the records themselves. And it reads the
+investigations table, for the estimated conversations each investigation
+evaluated, which an insight's estimated share is divided by.
 """
 
 from __future__ import annotations
@@ -51,6 +53,7 @@ from ambient_quality_agent.tools.insights.models import (
     list_root_cause_columns,
 )
 from ambient_quality_agent.tools.insights.reader import InsightOrder
+from ambient_quality_agent.tools.investigations.models import counter_to_key
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from pydantic import ValidationError
@@ -62,6 +65,7 @@ logger = logging.getLogger(__name__)
 
 _INSIGHTS_TABLE = "insights"
 _OCCURRENCES_TABLE = "insight_occurrences"
+_INVESTIGATIONS_TABLE = "investigations"
 
 _OWNER_ID = "COALESCE(m.merged_into_insight_id, o.insight_id)"
 """The insight an occurrence's evidence rolls up into, under the aliases
@@ -87,11 +91,18 @@ correct here for the same reason it is there.
 """
 
 
+_IMPACT_SQL = (
+    "SUM(COALESCE(owned.estimated_trajectory_count, owned.trace_count))"
+)
+"""`reader.compute_impact` over an insight's owned occurrences; NULL for an
+insight without any."""
+
+
 _ORDER_CLAUSES: dict[InsightOrder, str] = {
     InsightOrder.RECENT: "i.updated_at DESC, i.insight_id",
     # BigQuery sorts NULL below every value, so DESC puts the insights with no
     # occurrence to sum last -- where an impact ranking wants them.
-    InsightOrder.IMPACT: "SUM(owned.trace_count) DESC, i.insight_id",
+    InsightOrder.IMPACT: "impact DESC, i.insight_id",
 }
 """``ORDER BY`` body per order, each ending in ``insight_id`` so that equal rows
 keep one arrangement across pages and no insight is skipped or repeated."""
@@ -292,10 +303,100 @@ class BigQueryInsightReader:
         return f"""
 WITH owned AS (
   SELECT o.occurrence_id, o.agent_name, o.run_id, o.created_at, o.trace_count,
-         o.trajectory_ids, {_OWNER_ID} AS owner_id
+         o.trajectory_ids, o.estimated_trajectory_count, {_OWNER_ID} AS owner_id
   FROM `{self._build_table_ref(_OCCURRENCES_TABLE)}` o
   {self._build_owner_join()}
   WHERE o.agent_name = @agent_name
+)"""  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+
+    def _build_share_ctes(self, *, per_investigation: bool) -> str:
+        """Common table expressions holding each insight's estimated share.
+
+        The rule of `reader.compute_estimated_share`: ``runs`` are the
+        investigations `reader.is_share_investigation` accepts, ``sighted``
+        each insight's estimated conversations and the window ends of the
+        first and latest run that saw it, and ``shares`` divides the first by
+        the estimated conversations every run between those ends evaluated.
+        A custom investigation ran its own selector or none, and any other
+        the attachment's stored one.
+
+        Args:
+            per_investigation: Whether to estimate the share in the
+                investigation ``@investigation_id`` alone.
+
+        Returns:
+            SQL continuing `_build_owned_occurrences_cte` with
+            ``latest_runs``, ``runs``, ``sighted`` and ``shares``; ``shares``
+            projects ``owner_id`` and ``estimated_share``.
+        """
+        only_run = (
+            " AND runs.run_id = @investigation_id" if per_investigation else ""
+        )
+        # A JSON column may hold JSON text rather than an object, as the
+        # investigation store writes it, so one level is unwrapped first.
+        counters = (
+            "COALESCE(SAFE.PARSE_JSON(JSON_VALUE(inv.counters)), inv.counters)"
+        )
+        overrides = (
+            "COALESCE(SAFE.PARSE_JSON(JSON_VALUE(inv.custom_overrides)),"
+            " inv.custom_overrides)"
+        )
+        stored = (
+            "COALESCE(SAFE.PARSE_JSON(JSON_VALUE(inv.effective_config)),"
+            " inv.effective_config)"
+        )
+        scanned = counter_to_key("trajectories_scanned")
+        estimated_passed = counter_to_key("estimated_trajectories_eval_passed")
+        estimated_failed = counter_to_key("estimated_trajectories_eval_failed")
+        return f""",
+latest_runs AS (
+  SELECT
+    inv.run_id,
+    inv.window_end,
+    COALESCE(SAFE_CAST(JSON_VALUE({counters}, '$.{scanned}') AS INT64), 0)
+      AS scanned,
+    COALESCE(SAFE_CAST(JSON_VALUE({counters}, '$.{estimated_passed}') AS INT64), 0)
+      + COALESCE(SAFE_CAST(JSON_VALUE({counters}, '$.{estimated_failed}') AS INT64), 0)
+      AS estimated_judged,
+    COALESCE(JSON_VALUE({overrides}, '$.selector_sql'), '') AS custom_selector,
+    COALESCE(JSON_VALUE({overrides}, '$.session_review_focus'), '') AS custom_focus,
+    COALESCE(JSON_VALUE({stored}, '$.investigation_selector_sql'), '')
+      AS stored_selector
+  FROM `{self._build_table_ref(_INVESTIGATIONS_TABLE)}` inv
+  WHERE inv.observed_agent_name = @agent_name
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY inv.run_id ORDER BY inv.updated_at DESC) = 1
+),
+runs AS (
+  SELECT latest_runs.run_id, latest_runs.window_end, latest_runs.scanned
+  FROM latest_runs
+  WHERE IF(
+      latest_runs.custom_selector != '' OR latest_runs.custom_focus != '',
+      latest_runs.custom_selector,
+      latest_runs.stored_selector
+    ) = ''
+    AND latest_runs.window_end IS NOT NULL
+    AND 0 < latest_runs.estimated_judged
+    AND 0 < latest_runs.scanned
+),
+sighted AS (
+  SELECT
+    owned.owner_id,
+    SUM(owned.estimated_trajectory_count) AS estimated,
+    MIN(runs.window_end) AS first_end,
+    MAX(runs.window_end) AS last_end
+  FROM owned
+  JOIN runs ON runs.run_id = owned.run_id{only_run}
+  WHERE owned.estimated_trajectory_count IS NOT NULL
+  GROUP BY owned.owner_id
+),
+shares AS (
+  SELECT
+    sighted.owner_id,
+    SAFE_DIVIDE(sighted.estimated, SUM(runs.scanned)) AS estimated_share
+  FROM sighted
+  JOIN runs
+    ON runs.window_end BETWEEN sighted.first_end AND sighted.last_end{only_run}
+  GROUP BY sighted.owner_id, sighted.estimated
 )"""  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
 
     def list_insights(
@@ -310,6 +411,7 @@ WITH owned AS (
         has_root_cause: bool | None = None,
         order_by: InsightOrder = InsightOrder.RECENT,
         day: str | None = None,
+        query: str | None = None,
     ) -> tuple[list[InsightView], int]:
         """Pages through this agent's insights in the order ``order_by`` names.
 
@@ -326,6 +428,8 @@ WITH owned AS (
                 seen first).
             day: Optional UTC day, ``YYYY-MM-DD``: keep only the insights found
                 or resolved on it, as `InsightReader.list_insights` defines.
+            query: Optional text: keep only insights whose label contains it
+                or whose id starts with it, ignoring case.
 
         Returns:
             Tuple of (insights_list, total_matching_count).
@@ -346,6 +450,7 @@ WITH owned AS (
             window_end,
             has_root_cause,
             day=day,
+            query=query,
         )
         count_rows = list(
             self._run(
@@ -363,13 +468,16 @@ WITH owned AS (
         # ARRAY_AGG(... LIMIT 1)[SAFE_OFFSET(0)] pulls the most recent
         # occurrence's investigation_id inside the GROUP BY; IGNORE NULLS copes with the
         # LEFT JOIN's unmatched (occurrence-less) insights.
-        sql = f"""{self._build_owned_occurrences_cte()}
+        sql = f"""{self._build_owned_occurrences_cte()}{self._build_share_ctes(per_investigation=bool(investigation_id))}
 SELECT
   i.insight_id, i.agent_name, i.agent_id, i.label, i.status, i.created_at,
   i.updated_at, i.resolved_at, i.dismissed_at, i.merged_into_insight_id,
   i.merged_at,
   COUNT(owned.occurrence_id) AS occurrence_count,
   SUM(owned.trace_count) AS trajectory_count,
+  SUM(owned.estimated_trajectory_count) AS estimated_trajectory_count,
+  {_IMPACT_SQL} AS impact,
+  ANY_VALUE(shares.estimated_share) AS estimated_share,
   MAX(owned.created_at) AS last_investigation_at,
   ARRAY_AGG(owned.run_id IGNORE NULLS ORDER BY owned.created_at DESC LIMIT 1)[
     SAFE_OFFSET(0)] AS last_investigation_id,
@@ -378,6 +486,7 @@ SELECT
 FROM `{self._build_table_ref(_INSIGHTS_TABLE)}` i
 LEFT JOIN owned
   ON owned.owner_id = i.insight_id AND owned.agent_name = i.agent_name
+LEFT JOIN shares ON shares.owner_id = i.insight_id
 WHERE {where}
 GROUP BY i.insight_id, i.agent_name, i.agent_id, i.label, i.status,
   i.created_at, i.updated_at, i.resolved_at, i.dismissed_at,
@@ -397,6 +506,7 @@ LIMIT @limit OFFSET @offset
         window_end: str | None = None,
         has_root_cause: bool | None = None,
         day: str | None = None,
+        query: str | None = None,
     ) -> int:
         """Distinct conversations behind every insight the filters match.
 
@@ -418,6 +528,7 @@ LIMIT @limit OFFSET @offset
             has_root_cause: Optional filter for diagnosed (True) or undiagnosed
                 (False) insights.
             day: Optional UTC day string (YYYY-MM-DD).
+            query: Optional text to match against the label or id prefix.
 
         Returns:
             Number of distinct conversations matching the filter criteria.
@@ -438,6 +549,7 @@ LIMIT @limit OFFSET @offset
             window_end,
             has_root_cause,
             day=day,
+            query=query,
         )
         sql = f"""{self._build_owned_occurrences_cte()}
 SELECT COUNT(DISTINCT trajectory_id) AS conversations
@@ -474,13 +586,16 @@ WHERE {where}
             ),
             bigquery.ScalarQueryParameter("insight_id", "STRING", insight_id),
         ]
-        sql = f"""{self._build_owned_occurrences_cte()}
+        sql = f"""{self._build_owned_occurrences_cte()}{self._build_share_ctes(per_investigation=False)}
 SELECT
   i.insight_id, i.agent_name, i.agent_id, i.label, i.status, i.created_at,
   i.updated_at, i.resolved_at, i.dismissed_at, i.merged_into_insight_id,
   i.merged_at,
   COUNT(owned.occurrence_id) AS occurrence_count,
   SUM(owned.trace_count) AS trajectory_count,
+  SUM(owned.estimated_trajectory_count) AS estimated_trajectory_count,
+  {_IMPACT_SQL} AS impact,
+  ANY_VALUE(shares.estimated_share) AS estimated_share,
   MAX(owned.created_at) AS last_investigation_at,
   ARRAY_AGG(owned.run_id IGNORE NULLS ORDER BY owned.created_at DESC LIMIT 1)[
     SAFE_OFFSET(0)] AS last_investigation_id,
@@ -489,6 +604,7 @@ SELECT
 FROM `{self._build_table_ref(_INSIGHTS_TABLE)}` i
 LEFT JOIN owned
   ON owned.owner_id = i.insight_id AND owned.agent_name = i.agent_name
+LEFT JOIN shares ON shares.owner_id = i.insight_id
 WHERE i.agent_name = @agent_name AND i.insight_id = @insight_id
 GROUP BY i.insight_id, i.agent_name, i.agent_id, i.label, i.status,
   i.created_at, i.updated_at, i.resolved_at, i.dismissed_at,
@@ -622,7 +738,8 @@ GROUP BY i.insight_id, i.agent_name, i.agent_id, i.label, i.status,
         sql = f"""
 SELECT o.occurrence_id, o.insight_id, o.occurrence_state, o.run_id, o.created_at,
        o.agent_name, o.agent_revision, o.analysis_mode, o.label, o.item_count,
-       o.trace_count, o.trajectory_ids, o.analyses, o.rubrics
+       o.trace_count, o.trajectory_ids, o.estimated_trajectory_count,
+       o.analyses, o.rubrics
 {source}
 WHERE {where}
 ORDER BY o.created_at DESC, o.occurrence_id
@@ -690,6 +807,7 @@ WHERE {_ROOT_CAUSE_OWNER_ID} = @insight_id
         has_root_cause: bool | None = None,
         *,
         day: str | None = None,
+        query: str | None = None,
     ) -> tuple[str, list[Any]]:
         """Build the shared ``WHERE`` clause + params for the insight list/count.
 
@@ -716,6 +834,7 @@ WHERE {_ROOT_CAUSE_OWNER_ID} = @insight_id
             window_end: Optional ISO timestamp upper bound on ``updated_at``.
             has_root_cause: Optional filter for root-cause presence.
             day: Optional UTC day string (YYYY-MM-DD).
+            query: Optional text to match against the label or id prefix.
 
         Returns:
             Tuple of (where_clause_sql, query_parameters).
@@ -771,6 +890,16 @@ WHERE {_ROOT_CAUSE_OWNER_ID} = @insight_id
                 f"`{self._build_table_ref(ROOT_CAUSES_TABLE)}` rc "
                 f"{self._build_root_cause_owner_join()} "
                 f"WHERE {_ROOT_CAUSE_OWNER_ID} = i.insight_id)"
+            )
+        if query:
+            # STRPOS and STARTS_WITH rather than LIKE, so a `%` or `_` in what
+            # the user typed is matched literally instead of as a wildcard.
+            clauses.append(
+                "(STRPOS(LOWER(i.label), @query) > 0 "
+                "OR STARTS_WITH(LOWER(i.insight_id), @query))"
+            )
+            params.append(
+                bigquery.ScalarQueryParameter("query", "STRING", query.lower())
             )
         if window_start:
             clauses.append("i.updated_at >= @window_start")
@@ -845,6 +974,9 @@ def _row_to_view(row: Any) -> InsightView:
         merged_at=row["merged_at"],
         occurrence_count=int(row["occurrence_count"] or 0),
         trajectory_count=int(row["trajectory_count"] or 0),
+        estimated_trajectory_count=row.get("estimated_trajectory_count"),
+        impact=float(row.get("impact") or 0),
+        estimated_share=row.get("estimated_share"),
         last_investigation_id=row["last_investigation_id"],
         last_investigation_at=row["last_investigation_at"],
         has_root_cause=bool(row["has_root_cause"]),
@@ -935,6 +1067,7 @@ def _row_to_occurrence(row: Any) -> InsightOccurrence:
         # Missing trajectory IDs default to an empty list, representing no
         # named trajectories.
         trajectory_ids=list(row["trajectory_ids"] or []),
+        estimated_trajectory_count=row.get("estimated_trajectory_count"),
         analyses=_parse_analyses(row.get("analyses")),
         examples=_parse_rubrics(row["rubrics"]),
     )

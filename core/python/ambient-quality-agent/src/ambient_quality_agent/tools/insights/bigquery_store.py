@@ -390,6 +390,7 @@ ORDER BY updated_at DESC, insight_id
                 # BigQuery has no null array: a REPEATED column is written
                 # empty, never null, or the load job rejects the row.
                 "trajectory_ids": list(o.trajectory_ids),
+                "estimated_trajectory_count": o.estimated_trajectory_count,
                 "analyses": json.dumps(
                     {
                         k: v.model_dump(mode="json")

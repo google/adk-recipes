@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from agentplatform._genai.types import EvalCase
+    from ambient_quality_agent.tools.ingestion.models import SamplingRecord
     from ambient_quality_agent.tools.trajectories.bundles import (
         TrajectoryBundle,
     )
@@ -71,6 +72,7 @@ class NullTrajectoryRecorder:
         status: IngestStatus,
         case: EvalCase | None = None,
         agent_revision: str = "",
+        sampling: SamplingRecord | None = None,
     ) -> None:
         """No-op handler for adding an attempted trajectory row."""
 
@@ -125,6 +127,7 @@ class TrajectoryRecorder(NullTrajectoryRecorder):
         status: IngestStatus,
         case: EvalCase | None = None,
         agent_revision: str = "",
+        sampling: SamplingRecord | None = None,
     ) -> None:
         """Buffers an attempted trajectory and its trajectory bundle for writing.
 
@@ -135,6 +138,8 @@ class TrajectoryRecorder(NullTrajectoryRecorder):
             status: Ingestion status.
             case: Assembled EvalCase, or None if ingestion could not build a case.
             agent_revision: Deployment revision associated with the case.
+            sampling: How the ingestion query picked the trajectory, or None
+                when the source reported nothing.
         """
         recorded_at = dt.datetime.now(dt.UTC)
         self._pending.append(
@@ -147,6 +152,11 @@ class TrajectoryRecorder(NullTrajectoryRecorder):
                 source_session_id=session_id,
                 source_trace_ids=list(trace_ids),
                 ingest_status=status,
+                sampling_weight=sampling.weight if sampling else None,
+                inclusion_probability=(
+                    sampling.inclusion_probability if sampling else None
+                ),
+                sampling_signals=sampling.signals if sampling else None,
             )
         )
         if case is None:

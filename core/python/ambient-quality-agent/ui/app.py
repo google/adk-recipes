@@ -55,7 +55,7 @@ rather than a chat turn, so the UI never depends on the LLM to route a click.
 Endpoints
 ---------
 GET  /                          -> the dashboard shell (static_v2/index.html)
-GET  /api/config                -> {config: {...}, starter_selector} -- the effective configuration
+GET  /api/config                -> {config: {...}, ambient: {...}, ongoing_investigations, starter_selector}
 GET  /api/investigations        -> {investigations: [...]} for the investigations table
 POST /api/investigations        -> start one -> {investigation: {...}} | {ok: true} | {error}
 GET  /api/stats                 -> {stats: {...}} totals across every investigation
@@ -462,13 +462,14 @@ def _extract_rejection_detail(exc: BaseException) -> str:
 
 @app.get("/api/config")
 async def get_effective_config(request: Request) -> dict:
-    """Fetches the effective runtime configuration.
+    """Fetches the effective runtime configuration and ongoing status.
 
     Args:
         request: Incoming HTTP request.
 
     Returns:
         Dictionary containing the configuration object or an error message;
+        `ambient` and `ongoing_investigations` when reported by the agent;
         `starter_selector`, the SQL the selector editor starts from, when the
         agent sends one; and `demo: true` when the agent serves generated
         data, as the mock `make demo` runs does; a deployed agent never says
@@ -484,6 +485,14 @@ async def get_effective_config(request: Request) -> dict:
     if not isinstance(config, dict):
         return {"error": "The agent returned no configuration."}
     answer: dict[str, Any] = {"config": config}
+    if isinstance(result.get("ambient"), dict):
+        answer["ambient"] = result["ambient"]
+    if "ongoing_investigations" in result:
+        answer["ongoing_investigations"] = result["ongoing_investigations"]
+    if isinstance(result.get("ongoing_investigations_error"), str):
+        answer["ongoing_investigations_error"] = result[
+            "ongoing_investigations_error"
+        ]
     starter = result.get("starter_selector")
     if isinstance(starter, str):
         answer["starter_selector"] = starter
@@ -636,12 +645,23 @@ async def get_schedule(request: Request) -> dict:
             "error": f"Could not read the attachment of "
             f"{selected.get('agent_key')}: {selected['error']}"
         }
+    observed_engine_id = str(selected.get("observed_engine_id") or "")
+    unapplied = selected.get("unapplied_fields")
+    update_enabled = selected.get("update_trigger_enabled")
+    if not isinstance(update_enabled, bool):
+        update_enabled = (
+            bool(observed_engine_id)
+            and isinstance(unapplied, list)
+            and len(unapplied) == 0
+        )
     return {
         "available": True,
         "agent_key": selected.get("agent_key"),
         "agent_name": selected.get("agent_name"),
         "investigation_schedule": selected.get("investigation_schedule"),
         "scheduled_trigger_enabled": selected.get("scheduled_trigger_enabled"),
+        "observed_engine_id": observed_engine_id,
+        "update_trigger_enabled": update_enabled,
         "updated_at": selected.get("updated_at"),
     }
 
@@ -1324,7 +1344,7 @@ async def list_insights(request: Request) -> dict:
     Args:
         request: Incoming HTTP request with optional query filters (status,
             investigationId, hasRootCause, pageToken, page, orderBy, pageSize, day,
-            window).
+            q, window).
 
     Returns:
         Dictionary containing formatted insights, total count, affected
@@ -1350,6 +1370,8 @@ async def list_insights(request: Request) -> dict:
         args["page_size"] = page_size
     if day := params.get("day"):
         args["day"] = day
+    if query := (params.get("q") or "").strip():
+        args["query"] = query
     try:
         result = await _get_backend_client().post_command(
             INSIGHTS_LIST_ROUTE, args
@@ -1455,7 +1477,8 @@ def _format_insight_for_v2(
 ) -> dict:
     """Formats an insight record for the dashboard interface.
 
-    1. Derives `impact` from the total affected trace count across sightings.
+    1. Rounds the engine's `impact`, the figure it ranks insights by, to
+       whole conversations (`_resolve_impact`).
     2. Extracts `diagnosis` from the most recent sighting's verification analysis.
     3. Computes `has_root_cause` to allow summary badges without full record fetches.
        Investigation sweeps do not record root causes during detection; root causes
@@ -1489,7 +1512,7 @@ def _format_insight_for_v2(
     )
     return {
         **insight,
-        "impact": insight.get("impact", insight.get("trajectory_count", 0)),
+        "impact": _resolve_impact(insight),
         "diagnosis": diagnosis,
         "has_root_cause": diagnosed,
         "root_cause_context_ids": context_ids,
@@ -1528,12 +1551,30 @@ def _extract_root_cause_context_ids(
     return list(dict.fromkeys(candidates))
 
 
+def _resolve_impact(insight: dict) -> int:
+    """Resolves the figure the dashboard shows as an insight's impact.
+
+    Args:
+        insight: Insight view from the engine.
+
+    Returns:
+        Its `impact` (`reader.compute_impact`: estimated conversations, or
+        reviewed ones where there is no estimate) rounded to a whole number,
+        or its affected trajectory count from an engine that reports none.
+    """
+    impact = insight.get("impact")
+    if impact is None:
+        return int(insight.get("trajectory_count") or 0)
+    return round(float(impact))
+
+
 def _format_occurrence_for_v2(occurrence: dict) -> dict:
     """Formats a sighting occurrence for the dashboard interface.
 
     1. Projects `trajectory_ids` to `evidence_trajectory_ids`.
     2. Maps `trajectory_count` to `trajectories_checked`.
-    3. Populates Cloud Trace console links keyed by trajectory ID.
+    3. Populates Cloud Trace console links and the risk signals each
+       trajectory was picked for, keyed by trajectory ID.
     4. Extracts `diagnosis` and `refined_label` from verification analyses without
        conflating autorater evaluations with human or agent diagnoses.
 
@@ -1551,6 +1592,7 @@ def _format_occurrence_for_v2(occurrence: dict) -> dict:
         "trajectories_checked", int(occurrence.get("trajectory_count") or 0)
     )
     view.setdefault("console_urls", _extract_console_urls(occurrence))
+    view.setdefault("sampling_signals", _extract_sampling_signals(occurrence))
     view["root_causes"] = occurrence.get("root_causes") or []
     if not view.get("diagnosis"):
         view["diagnosis"] = _extract_diagnosis(occurrence.get("analyses"))
@@ -1577,6 +1619,24 @@ def _extract_console_urls(occurrence: dict) -> dict[str, str]:
         trajectory["trajectory_id"]: trajectory["console_url"]
         for trajectory in occurrence.get("investigation_trajectories") or []
         if trajectory.get("trajectory_id") and trajectory.get("console_url")
+    }
+
+
+def _extract_sampling_signals(occurrence: dict) -> dict[str, dict]:
+    """Maps trajectory IDs to the risk signals weighted sampling scored them on.
+
+    Args:
+        occurrence: Sighting occurrence record containing trajectory metadata.
+
+    Returns:
+        Dictionary mapping trajectory IDs to their sampling signals; a
+        trajectory sampled uniformly has no entry.
+    """
+    return {
+        trajectory["trajectory_id"]: trajectory["sampling_signals"]
+        for trajectory in occurrence.get("investigation_trajectories") or []
+        if trajectory.get("trajectory_id")
+        and trajectory.get("sampling_signals")
     }
 
 

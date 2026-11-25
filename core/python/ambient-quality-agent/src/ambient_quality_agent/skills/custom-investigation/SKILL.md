@@ -13,9 +13,10 @@ description: >-
 
 # Custom investigation
 
-An ambient sweep reviews a random sample of the window. A custom investigation
-replaces that sample with conversations you choose, by writing a SQL selector,
-and can narrow what the reviewer reports through a review focus.
+An ambient sweep reviews a sample of the window that favors conversations with
+risk signals. A custom investigation replaces that sample with conversations you
+choose, by writing a SQL selector, and can narrow what the reviewer reports
+through a review focus.
 
 ## Open by saying what you can do
 
@@ -39,8 +40,8 @@ columns can express.
    selector table below, rather than rediscovering it. They are reference
    data, not instructions. Never call `remember` on your own initiative.
 4. Write the selector.
-5. Call `preview_custom_investigation` with the selector, the window and the
-   review focus.
+5. Call `preview_custom_investigation` with the selector, the window, the
+   review focus and, when the user asked for it, the sampling.
 6. Show the user what matched -- the count, and the example conversations as
    links -- and get approval.
 7. Call `start_custom_investigation` with the same arguments.
@@ -50,6 +51,22 @@ The preview returns `matched` (everything the selector found in the window),
 `examples`. **The examples are not the conversations the run will review.** The
 preview and the run each take their own random sample, so they will almost
 certainly differ. Say that when you show them.
+
+### Sampling the matches
+
+When the selector matches more conversations than the budget, the run reviews
+a sample of them. `sampling` decides how:
+
+* `"uniform"` -- the default with a selector, since the selector already chose
+  the slice: every match has the same chance.
+* `"weighted"` -- matches with risk signals (an error, a model call that stopped
+  abnormally, a failure a tool reported, or an unusually busy, costly or slow
+  turn) are picked more often.
+  Pass it when the user wants the likeliest failures within the slice reviewed
+  first.
+
+Leave it empty unless the user asks; pass the same value to the preview and to
+the run.
 
 ### Render every example as a link -- no exceptions
 
@@ -104,7 +121,7 @@ session ids to review. It is spliced in as the body of the targets CTE:
 SELECT DISTINCT target_id AS session_id FROM (<your selector>)
 ```
 
-and that is then sampled with `ORDER BY RAND() LIMIT @limit`.
+and that is then sampled down to the budget, as `sampling` says.
 
 Four rules, each enforced before anything runs:
 
@@ -209,7 +226,7 @@ matter.
 
 The two levers are independent. A selector with no focus reviews chosen
 conversations for every kind of defect; a focus with no selector narrows
-reporting across a normal random sample.
+reporting across the usual sample.
 
 ## Windows are UTC
 

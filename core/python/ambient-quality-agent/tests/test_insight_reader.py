@@ -155,8 +155,28 @@ def test_list_insights_ranks_by_impact_in_the_query() -> None:
     )
 
     page_sql = _sql(client.query.call_args_list[1])
-    assert "ORDER BY SUM(owned.trace_count) DESC, i.insight_id" in page_sql
+    # An occurrence's estimated conversations, or its reviewed ones where it
+    # has no estimate.
+    assert (
+        "SUM(COALESCE(owned.estimated_trajectory_count, owned.trace_count))"
+        " AS impact"
+    ) in page_sql
+    assert "ORDER BY impact DESC, i.insight_id" in page_sql
     assert _params(client.query.call_args_list[1])["limit"] == 10
+
+
+def test_an_insight_carries_the_impact_it_was_ranked_by() -> None:
+    client = _query_returning(
+        [{"total": 1}],
+        [_summary_row(estimated_trajectory_count=10.0, impact=510.0)],
+    )
+
+    views, _ = _reader(client).list_insights(
+        limit=10, offset=0, order_by=InsightOrder.IMPACT
+    )
+
+    assert views[0].impact == 510.0
+    assert views[0].estimated_trajectory_count == 10.0
 
 
 def test_a_resolved_insight_carries_its_resolution_date() -> None:
@@ -855,8 +875,8 @@ def test_the_insights_agent_reads_back(stored: str | None, read: str) -> None:
     assert view is not None
     assert view.agent_id == read
     sql = _sql(client.query.call_args)
-    assert "i.agent_id" in sql.split("GROUP BY", maxsplit=1)[0]
-    assert "i.agent_id" in sql.split("GROUP BY", maxsplit=1)[1]
+    assert "i.agent_id" in sql.split("GROUP BY i.", maxsplit=1)[0]
+    assert "i.agent_id" in sql.split("GROUP BY i.", maxsplit=1)[1]
 
 
 def test_a_diagnosed_insight_reads_back_marked() -> None:
@@ -1237,3 +1257,38 @@ def test_an_unmigrated_root_causes_table_without_context_id_still_reads() -> (
     assert "rc.context_id" not in rc_sql
     assert summaries[0].root_cause_context_ids == []
     assert records[0].context_id == ""
+
+
+def test_list_insights_query_matches_label_or_id_prefix_in_both_reads() -> None:
+    """The count drives paging, so it has to filter on the same text as the
+    page. Lowercased once here so the SQL compares like with like."""
+    client = _query_returning([{"total": 0}], [])
+
+    _reader(client).list_insights(limit=10, offset=0, query="Employee ID")
+
+    for call in client.query.call_args_list:
+        sql = _sql(call)
+        assert "STRPOS(LOWER(i.label), @query) > 0" in sql
+        assert "STARTS_WITH(LOWER(i.insight_id), @query)" in sql
+        assert _params(call)["query"] == "employee id"
+
+
+def test_list_insights_query_is_a_parameter_not_a_pattern() -> None:
+    """`%` and `_` are ordinary characters to a user; LIKE would treat them as
+    wildcards, so the text is never spliced into a pattern."""
+    client = _query_returning([{"total": 0}], [])
+
+    _reader(client).list_insights(limit=10, offset=0, query="100%_off")
+
+    sql = _sql(client.query.call_args_list[0])
+    assert "LIKE" not in sql
+    assert "100%_off" not in sql
+    assert _params(client.query.call_args_list[0])["query"] == "100%_off"
+
+
+def test_list_insights_without_a_query_has_no_text_filter() -> None:
+    client = _query_returning([{"total": 0}], [])
+
+    _reader(client).list_insights(limit=10, offset=0)
+
+    assert "@query" not in _sql(client.query.call_args_list[0])

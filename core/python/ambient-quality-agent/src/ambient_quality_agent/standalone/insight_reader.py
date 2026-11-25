@@ -44,7 +44,12 @@ from ambient_quality_agent.tools.insights.models import (
     InsightStatus,
     InsightView,
 )
-from ambient_quality_agent.tools.insights.reader import InsightOrder
+from ambient_quality_agent.tools.insights.reader import (
+    InsightOrder,
+    compute_estimated_share,
+    compute_impact,
+    is_share_investigation,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -82,6 +87,7 @@ class InMemoryInsightReader:
         has_root_cause: bool | None = None,
         order_by: InsightOrder = InsightOrder.RECENT,
         day: str | None = None,
+        query: str | None = None,
     ) -> tuple[list[InsightView], int]:
         """Returns a paginated list of insights and the total match count.
 
@@ -95,6 +101,7 @@ class InMemoryInsightReader:
             has_root_cause: Optional boolean filter for whether diagnoses exist.
             order_by: Sorting criterion (recency or conversation impact).
             day: Optional ISO date string (YYYY-MM-DD) for status change date filter.
+            query: Optional text to match against the label or id prefix.
 
         Returns:
             A tuple of (paginated list of InsightView records, total match count).
@@ -106,9 +113,19 @@ class InMemoryInsightReader:
             window_end,
             has_root_cause,
             day=day,
+            query=query,
         )
-        views = [self._build_insight_view(insight) for insight in matching]
-        views.sort(key=_ORDER_KEYS[order_by])
+        windows = self._list_share_windows()
+        views = [
+            self._build_insight_view(
+                insight, windows, investigation_id=investigation_id
+            )
+            for insight in matching
+        ]
+        if order_by is InsightOrder.IMPACT:
+            views.sort(key=lambda v: (-v.impact, v.insight_id))
+        else:
+            views.sort(key=_compute_recency_key)
         return views[offset : offset + limit], len(views)
 
     def count_affected_conversations(
@@ -120,6 +137,7 @@ class InMemoryInsightReader:
         window_end: str | None = None,
         has_root_cause: bool | None = None,
         day: str | None = None,
+        query: str | None = None,
     ) -> int:
         """Counts unique conversations across insights matching the given filters.
 
@@ -133,6 +151,7 @@ class InMemoryInsightReader:
             window_end: Optional ISO timestamp upper bound for last sighting.
             has_root_cause: Optional boolean filter for whether diagnoses exist.
             day: Optional ISO date string (YYYY-MM-DD) for status change date filter.
+            query: Optional text to match against the label or id prefix.
 
         Returns:
             Number of distinct conversation trajectory IDs across matching insights.
@@ -145,6 +164,7 @@ class InMemoryInsightReader:
             window_end,
             has_root_cause,
             day=day,
+            query=query,
         ):
             for occurrence in self._list_owned_occurrences(insight.insight_id):
                 conversations.update(occurrence.trajectory_ids)
@@ -296,6 +316,7 @@ class InMemoryInsightReader:
         has_root_cause: bool | None,
         *,
         day: str | None = None,
+        query: str | None = None,
     ) -> list[Insight]:
         """Filters insights by lifecycle status, investigation, sighting window, and diagnoses.
 
@@ -309,6 +330,7 @@ class InMemoryInsightReader:
             window_end: Optional ISO timestamp upper bound for last sighting.
             has_root_cause: Optional boolean filter for diagnosis presence.
             day: Optional ISO date string (YYYY-MM-DD) for status change date filter.
+            query: Optional text to match against the label or id prefix.
 
         Returns:
             List of matching `Insight` records.
@@ -317,6 +339,7 @@ class InMemoryInsightReader:
         end = _parse_instant(window_end)
         changed_on = dt.date.fromisoformat(day) if day else None
         wanted = set(statuses) if statuses else None
+        needle = query.lower() if query else None
         kept = []
         for insight in self._store.insights.values():
             if not self._is_mine(insight):
@@ -346,6 +369,8 @@ class InMemoryInsightReader:
                 != has_root_cause
             ):
                 continue
+            if needle is not None and not _matches_query(insight, needle):
+                continue
             kept.append(insight)
         return kept
 
@@ -369,15 +394,47 @@ class InMemoryInsightReader:
             and occurrence.insight_id == insight_id
         ]
 
-    def _build_insight_view(self, insight: Insight) -> InsightView:
+    def _list_share_windows(self) -> dict[str, tuple[dt.datetime, int]]:
+        """Lists the investigations an insight's share is estimated from.
+
+        Returns:
+            For each of this agent's investigations `is_share_investigation`
+            accepts, its window end and `trajectories_scanned`, keyed by id.
+        """
+        windows: dict[str, tuple[dt.datetime, int]] = {}
+        for investigation in self._store.investigations.values():
+            if (
+                investigation.observed_agent_key != self._observed_agent_key
+                or not is_share_investigation(investigation)
+            ):
+                continue
+            end = _parse_instant(investigation.window_end)
+            if end is not None:
+                windows[investigation.investigation_id] = (
+                    end,
+                    investigation.counters.trajectories_scanned,
+                )
+        return windows
+
+    def _build_insight_view(
+        self,
+        insight: Insight,
+        windows: dict[str, tuple[dt.datetime, int]] | None = None,
+        *,
+        investigation_id: str | None = None,
+    ) -> InsightView:
         """Assembles an `InsightView` with aggregated stats for an insight.
 
         Args:
             insight: Base insight record.
+            windows: The investigations its share is estimated from, as
+                `_list_share_windows` returns them; read from the store when
+                None.
+            investigation_id: When set, the share is that investigation's.
 
         Returns:
             `InsightView` combining insight attributes with occurrence and
-            trajectory counts.
+            trajectory counts and the estimates for all traffic.
         """
         owned = self._list_owned_occurrences(insight.insight_id)
         newest = max(
@@ -387,15 +444,45 @@ class InMemoryInsightReader:
         context_ids = list(
             dict.fromkeys(r.context_id for r in history if r.context_id)
         )
+        estimates = [
+            o.estimated_trajectory_count
+            for o in owned
+            if o.estimated_trajectory_count is not None
+        ]
         return InsightView(
             **insight.model_dump(),
             occurrence_count=len(owned),
             trajectory_count=sum(o.trajectory_count for o in owned),
+            estimated_trajectory_count=sum(estimates) if estimates else None,
+            impact=compute_impact(owned),
+            estimated_share=compute_estimated_share(
+                owned,
+                self._list_share_windows() if windows is None else windows,
+                investigation_id=investigation_id,
+            ),
             last_investigation_id=newest.investigation_id if newest else None,
             last_investigation_at=newest.created_at if newest else None,
             has_root_cause=bool(history),
             root_cause_context_ids=context_ids,
         )
+
+
+def _matches_query(insight: Insight, needle: str) -> bool:
+    """Returns whether the insight's label contains the text or its id starts with it.
+
+    The same test `BigQueryInsightReader._build_insight_filters` applies in SQL.
+
+    Args:
+        insight: The insight to test.
+        needle: The text to look for, already lowercased.
+
+    Returns:
+        True if the label contains `needle` or the id starts with it.
+    """
+    return (
+        needle in insight.label.lower()
+        or insight.insight_id.lower().startswith(needle)
+    )
 
 
 def _has_changed_on(
@@ -438,24 +525,6 @@ def _compute_recency_key(view: InsightView) -> tuple[object, ...]:
         Tuple representing the sort key.
     """
     return (-view.updated_at.timestamp(), view.insight_id)
-
-
-def _compute_impact_key(view: InsightView) -> tuple[object, ...]:
-    """Sort key for ordering insights by conversation count descending.
-
-    Args:
-        view: Insight view to compute the sort key for.
-
-    Returns:
-        Tuple representing the sort key.
-    """
-    return (-view.trajectory_count, view.insight_id)
-
-
-_ORDER_KEYS = {
-    InsightOrder.RECENT: _compute_recency_key,
-    InsightOrder.IMPACT: _compute_impact_key,
-}
 
 
 def _parse_instant(stamp: str | None) -> dt.datetime | None:

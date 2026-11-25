@@ -31,9 +31,11 @@ from unittest import mock
 import pytest
 from agentplatform._genai.types import EvalCase
 from agentplatform._genai.types.evals import AgentData, ConversationTurn
+from ambient_quality_agent.tools.ingestion.models import SamplingRecord
 from ambient_quality_agent.tools.trajectories.models import (
     IngestStatus,
     InvestigationTrajectory,
+    SamplingSignals,
     TrajectoryStatus,
 )
 from ambient_quality_agent.tools.trajectories.recorder import (
@@ -104,6 +106,35 @@ def test_the_recorder_supplies_what_a_fetcher_cannot_know() -> None:
     assert row.source_session_id == "s-1"
     assert row.source_trace_ids == ["t-1", "t-2"]
     assert row.created_at.tzinfo is dt.UTC
+
+
+def test_how_ingestion_picked_the_trajectory_is_stored_with_it() -> None:
+    store = mock.MagicMock()
+    recorder = _recorder(store)
+    signals = SamplingSignals(has_error=True, latency_tail=0.25)
+
+    _add(
+        recorder,
+        sampling=SamplingRecord(
+            inclusion_probability=0.2, weight=5.25, signals=signals
+        ),
+    )
+    _add(recorder, trajectory_id="unweighed")
+    recorder.flush()
+
+    weighed, unweighed = store.record_investigation_trajectories.call_args.args[
+        0
+    ]
+    assert (
+        weighed.sampling_weight,
+        weighed.inclusion_probability,
+        weighed.sampling_signals,
+    ) == (5.25, 0.2, signals)
+    assert (
+        unweighed.sampling_weight,
+        unweighed.inclusion_probability,
+        unweighed.sampling_signals,
+    ) == (None, None, None)
 
 
 @pytest.mark.parametrize("status", list(IngestStatus))

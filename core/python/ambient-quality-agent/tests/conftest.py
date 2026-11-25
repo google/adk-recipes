@@ -395,6 +395,7 @@ class FakeTrajectoryRecorder:
         status: Any,
         case: Any = None,
         agent_revision: str = "",
+        sampling: Any = None,
     ) -> None:
         self._pending.append(
             SimpleNamespace(
@@ -404,6 +405,7 @@ class FakeTrajectoryRecorder:
                 ingest_status=status,
                 case=case,
                 agent_revision=agent_revision,
+                sampling=sampling,
             )
         )
 
@@ -1048,6 +1050,15 @@ class FakeGcsClient:
     lets `tools.gcs.claim_once` be exercised for real (including its 412 path)
     without network. Patch `gcs.client` to return an instance, or pass one
     through a `client_factory`.
+
+    For readers that need object metadata (such as the ATIF file source),
+    `updated` and `listed_sizes` override a blob's timestamp and reported size,
+    and `content_encodings` marks gzip-encoded keys so downloads without
+    `raw_download` decompress them like GCS. Fault injection and inspection
+    hooks: `errors` fails both `get_blob` and downloads for a key,
+    `download_errors` fails downloads only, `list_error` fails listing,
+    `listings` counts list calls, and `download_requests` records each
+    download's range and `raw_download` flag.
     """
 
     def __init__(
@@ -1059,6 +1070,14 @@ class FakeGcsClient:
         self.deletes: list[tuple[str, str]] = []
         self.downloads: list[tuple[str, str]] = []
         self.content_types: dict[tuple[str, str], str | None] = {}
+        self.updated: dict[tuple[str, str], Any] = {}
+        self.listed_sizes: dict[tuple[str, str], int] = {}
+        self.errors: dict[tuple[str, str], Exception] = {}
+        self.download_errors: dict[tuple[str, str], Exception] = {}
+        self.listings = 0
+        self.list_error: Exception | None = None
+        self.content_encodings: dict[tuple[str, str], str] = {}
+        self.download_requests: list[tuple[str, dict[str, Any]]] = []
 
     def bucket(self, name: str) -> _FakeGcsBucket:
         return _FakeGcsBucket(self, name)
@@ -1076,7 +1095,13 @@ class FakeGcsClient:
 
         Returns:
             An iterable of the blobs, whose `prefixes` is set once iterated.
+
+        Raises:
+            Exception: `list_error`, when set.
         """
+        self.listings += 1
+        if self.list_error is not None:
+            raise self.list_error
         blobs: list[_FakeGcsBlob] = []
         prefixes: set[str] = set()
         for key in sorted(self.contents):
@@ -1111,6 +1136,25 @@ class _FakeGcsBucket:
     def blob(self, name: str) -> _FakeGcsBlob:
         return _FakeGcsBlob(self._client, (self._name, name))
 
+    def get_blob(self, name: str) -> _FakeGcsBlob | None:
+        """Read an object's metadata, returning None when absent like GCS.
+
+        Args:
+            name: Object name within the bucket.
+
+        Returns:
+            The blob, or None.
+
+        Raises:
+            Exception: The error set in `errors` for the key.
+        """
+        key = (self._name, name)
+        if key in self._client.errors:
+            raise self._client.errors[key]
+        if key not in self._client.contents:
+            return None
+        return _FakeGcsBlob(self._client, key)
+
 
 class _FakeGcsBlob:
     def __init__(self, client: FakeGcsClient, key: tuple[str, str]) -> None:
@@ -1120,6 +1164,16 @@ class _FakeGcsBlob:
     @property
     def name(self) -> str:
         return self._key[1]
+
+    @property
+    def size(self) -> int:
+        return self._client.listed_sizes.get(
+            self._key, len(self._client.contents.get(self._key, b""))
+        )
+
+    @property
+    def updated(self) -> Any:
+        return self._client.updated.get(self._key)
 
     def upload_from_string(
         self,
@@ -1141,21 +1195,52 @@ class _FakeGcsBlob:
     def download_as_text(self) -> str:
         return self.download_as_bytes().decode("utf-8")
 
-    def download_as_bytes(self) -> bytes:
+    def download_as_bytes(
+        self,
+        start: int | None = None,
+        end: int | None = None,
+        raw_download: bool = False,
+    ) -> bytes:
         """Read, raising `NotFound` on an absent object (like GCS).
 
+        Args:
+            start: First byte of the range.
+            end: Last byte of the range, inclusive.
+            raw_download: Whether to skip decompressing a gzip-encoded object.
+
         Returns:
-            The stored blob contents as bytes.
+            The stored blob contents as bytes, or the requested range.
 
         Raises:
             NotFound: If the object does not exist.
         """
+        import gzip
+
         from google.api_core import exceptions as api_exceptions
 
         self._client.downloads.append(self._key)
+        self._client.download_requests.append(
+            (self._key[1], {"start": start, "end": end, "raw": raw_download})
+        )
+        for errors in (self._client.errors, self._client.download_errors):
+            if self._key in errors:
+                raise errors[self._key]
         if self._key not in self._client.contents:
             raise api_exceptions.NotFound("object missing")
-        return self._client.contents[self._key]
+        data = self._client.contents[self._key]
+        if (
+            not raw_download
+            and self._client.content_encodings.get(self._key) == "gzip"
+        ):
+            data = gzip.decompress(data)
+        first = start or 0
+        if (start is not None or end is not None) and (
+            not data or first >= len(data)
+        ):
+            raise api_exceptions.RequestRangeNotSatisfiable(
+                "range not satisfiable"
+            )
+        return data[first : None if end is None else end + 1]
 
     def delete(self) -> None:
         """Delete the marker, raising `NotFound` on an absent object (like GCS).

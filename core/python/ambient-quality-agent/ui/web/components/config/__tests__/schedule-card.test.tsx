@@ -14,6 +14,13 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  RouterProvider,
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+} from "@tanstack/react-router";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ScheduleCard } from "../schedule-card";
@@ -235,5 +242,105 @@ describe("ScheduleCard", () => {
     expect(
       screen.getByRole("button", { name: "Save schedule" }),
     ).toBeDisabled();
+  });
+
+  it("shows ongoing investigations and update-trigger status", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/api/investigations")) {
+          return new Response(
+            JSON.stringify({
+              investigations: [
+                {
+                  investigation_id: "inv-live-42",
+                  observed_agent_key: "acme-prod__billing",
+                  status: "running",
+                  created_at: new Date().toISOString(),
+                  finished_at: null,
+                  elapsed_seconds: null,
+                  metrics_passed: 0,
+                  metrics_failed: 0,
+                  metrics_errored: 0,
+                  error: null,
+                  progress: {
+                    stage: "Session review",
+                    evaluated: 12,
+                    total: 50,
+                    updated_at: new Date().toISOString(),
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            ...ATTACHED,
+            observed_engine_id: "eng-99",
+            update_trigger_enabled: true,
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const root = createRootRoute();
+    const configRoute = createRoute({
+      getParentRoute: () => root,
+      path: "/config",
+      component: ScheduleCard,
+    });
+    const invRoute = createRoute({
+      getParentRoute: () => root,
+      path: "/investigations/$investigationId",
+    });
+    const router = createRouter({
+      routeTree: root.addChildren([configRoute, invRoute]),
+      history: createMemoryHistory({ initialEntries: ["/config"] }),
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        {/* biome-ignore lint/suspicious/noExplicitAny: test router */}
+        <RouterProvider router={router as any} />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByText(
+        /1 ongoing investigation — no manual start needed/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("inv-live-42").closest("a")).toHaveAttribute(
+      "href",
+      "/investigations/inv-live-42",
+    );
+    expect(
+      screen.getByText(/Running · 12 of 50 trajectories/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Update trigger active for engine/),
+    ).toBeInTheDocument();
+  });
+
+  it("reports a failed investigations read instead of pretending nothing is ongoing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/api/investigations")) {
+          return new Response("gateway timeout", { status: 502 });
+        }
+        return new Response(JSON.stringify(ATTACHED), { status: 200 });
+      }),
+    );
+    renderCard();
+
+    expect(
+      await screen.findByText(/Could not check ongoing investigations/),
+    ).toBeInTheDocument();
   });
 });

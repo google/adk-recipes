@@ -860,3 +860,50 @@ def test_the_insights_agent_reads_back(
 
     assert view is not None
     assert view.agent_id == "sub_agent"
+
+
+# --- text search ------------------------------------------------------------ #
+
+
+def test_a_query_matches_the_label_ignoring_case(
+    reader: InMemoryInsightReader, backing: InMemoryStore
+) -> None:
+    _seed(
+        backing,
+        [
+            _insight("a1", "Invents an employee ID"),
+            _insight("b2", "books the hotel twice"),
+        ],
+    )
+
+    page, total = reader.list_insights(limit=10, offset=0, query="employee id")
+
+    assert _ids(page) == ["a1"]
+    assert total == 1
+
+
+def test_a_query_matches_an_id_prefix_not_the_middle_of_one(
+    reader: InMemoryInsightReader, backing: InMemoryStore
+) -> None:
+    """As the BigQuery reader's STARTS_WITH: pasting the start of an id finds
+    it, and a few characters that happen to sit inside some id do not."""
+    _seed(backing, [_insight("abc123"), _insight("zzabc9")])
+
+    page, _ = reader.list_insights(limit=10, offset=0, query="ABC")
+
+    assert _ids(page) == ["abc123"]
+
+
+def test_a_query_narrows_the_conversation_count_too(
+    reader: InMemoryInsightReader, backing: InMemoryStore
+) -> None:
+    _seed(
+        backing,
+        [_insight("a1", "hotel"), _insight("b2", "expense")],
+        [
+            _occurrence("o1", "a1", trajectory_ids=["t1", "t2"]),
+            _occurrence("o2", "b2", trajectory_ids=["t3"]),
+        ],
+    )
+
+    assert reader.count_affected_conversations(query="hotel") == 2

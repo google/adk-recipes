@@ -35,7 +35,7 @@ from ambient_quality_agent.core import state as state_module
 from ambient_quality_agent.core.investigation import job_execution as execute
 from ambient_quality_agent.core.investigation import job_scheduling as schedule
 from ambient_quality_agent.core.investigation import model as runs
-from ambient_quality_agent.core.nodes import _stage
+from ambient_quality_agent.core.nodes import _stage, review
 from ambient_quality_agent.core.state import WorkflowState
 from ambient_quality_agent.tools.investigations import health
 from ambient_quality_agent.tools.investigations.models import (
@@ -344,26 +344,41 @@ def _review_then_cancel(
 ) -> None:
     """Make the reviewer cancel the investigation while page 1 is reviewed.
 
+    Page 1 holds one session past the review window so `evaluate` collects at
+    least one completed review before returning, and `finish_page` writes a
+    stage row before page 2 is fetched.
+
     Args:
         patched_factories: The graph's fakes.
         state: State the investigation is stored under.
         store: The investigation store, to find the one being reviewed.
     """
     reviewer = patched_factories["reviewer"]
+    cancel_lock = threading.Lock()
+    cancelled = False
 
     def review_then_cancel(prompt: str) -> str:
-        if not reviewer.prompts:
-            # The fake keeps BigQuery's rows, whose column is still `run_id`.
-            investigation_id = store.rows[-1]["run_id"]
-            asyncio.run(
-                runs.cancel_investigation(investigation_id, StateContext(state))
-            )
+        nonlocal cancelled
+        with cancel_lock:
+            if not cancelled:
+                cancelled = True
+                # The fake keeps BigQuery's rows, whose column is still `run_id`.
+                investigation_id = store.rows[-1]["run_id"]
+                asyncio.run(
+                    runs.cancel_investigation(
+                        investigation_id, StateContext(state)
+                    )
+                )
         return reviewer(prompt)
 
     patched_factories["reviewer"] = review_then_cancel
+    first_page_size = 2 * review.REVIEW_CONCURRENCY + 1
     patched_factories["fetcher"]._pages = [
-        make_page([make_agent_case("s1")], next_page_token="page-2"),
-        make_page([make_agent_case("s2")]),
+        make_page(
+            [make_agent_case(f"s{n}") for n in range(first_page_size)],
+            next_page_token="page-2",
+        ),
+        make_page([make_agent_case("s-next")]),
     ]
 
 

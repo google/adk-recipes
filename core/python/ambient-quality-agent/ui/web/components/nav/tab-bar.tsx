@@ -15,7 +15,7 @@
 
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Compass, PanelLeft, Settings } from "lucide-react";
+import { Compass, PanelLeft, Search, Settings } from "lucide-react";
 import {
   effectiveConfigQuery,
   healthQuery,
@@ -23,6 +23,10 @@ import {
   investigationsQuery,
 } from "@/lib/aqua-api";
 import { useAgentKey } from "@/lib/agent-selection";
+import {
+  formatPaletteShortcut,
+  setCommandPaletteOpen,
+} from "@/lib/command-palette";
 import { useRailState } from "@/lib/rail-state";
 import { isViewerMode } from "@/lib/viewer-mode";
 import { startTour } from "@/lib/tour-state";
@@ -122,6 +126,16 @@ export function TabBar() {
             Demo data
           </span>
         )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+          onClick={() => setCommandPaletteOpen(true)}
+          aria-label="Search"
+          title={`Search (${formatPaletteShortcut()})`}
+        >
+          <Search className="h-4 w-4" />
+        </Button>
         {!viewer && (
           <Button
             asChild

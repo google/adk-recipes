@@ -113,7 +113,29 @@ def test_a_paused_schedule_is_not_shown(jobs: GcsObjectStore) -> None:
         scheduled_trigger_enabled=False,
     )
 
-    assert _compute_shown_schedule() is None
+    payload = asyncio.run(health_tools.get_ambient_health(ToolContext()))
+    assert payload["schedule"] is None
+    assert payload["verdict"] == "disabled"
+
+
+def test_a_paused_schedule_with_applied_update_trigger_is_not_disabled(
+    jobs: GcsObjectStore,
+) -> None:
+    _save(
+        jobs,
+        investigation_schedule="0 6 * * *",
+        scheduled_trigger_enabled=False,
+        observed_engine_id="eng-1",
+        applied=store.Applied(
+            at="2026-10-01T00:00:00+00:00",
+            observed_engine_id="eng-1",
+            observed_project_id="",
+        ),
+    )
+
+    payload = asyncio.run(health_tools.get_ambient_health(ToolContext()))
+    assert payload["schedule"] is None
+    assert payload["verdict"] == "never"
 
 
 def test_an_attachment_without_a_schedule_runs_on_the_default(

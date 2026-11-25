@@ -42,6 +42,7 @@ class CodeMetricEvaluation:
     """Scores each page against the published code-metric library."""
 
     name = "custom_metrics"
+    pending_count = 0
 
     @property
     def outcomes(self) -> dict[str, str]:

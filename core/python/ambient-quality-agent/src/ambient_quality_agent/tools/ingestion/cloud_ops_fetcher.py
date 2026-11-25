@@ -30,7 +30,9 @@ Both attach spans to an evaluation case by ``trace_id``. Because execution-level
 spans (such as ``call_llm`` and ``execute_tool``) omit ``gen_ai.conversation.id``,
 session ids are first resolved to trace ids to retain tool execution telemetry.
 Both read a selected session's or trace's spans only within
-`JOIN_BACK_MARGIN_DAYS` of the window (see `build_join_back_window`).
+`JOIN_BACK_MARGIN_DAYS` of the window (see `build_join_back_window`). Weighted
+sampling scores a session or trace on the spans it recorded in the window
+(`_build_measures_sql`).
 
 Span payloads are converted to `AgentData` for evaluation.
 """
@@ -45,7 +47,7 @@ from typing import Any
 
 from agentplatform._genai.types import EvalCase
 from ambient_quality_agent.tools.evaluation.models import MetricType
-from ambient_quality_agent.tools.ingestion import selector
+from ambient_quality_agent.tools.ingestion import sampling, selector
 from ambient_quality_agent.tools.ingestion.base import (
     DEFAULT_JOB_TIMEOUT_MS,
     BigQueryJobFetcher,
@@ -169,10 +171,6 @@ _SINGLE_TURN_TARGETS = f"""
   GROUP BY trace_id
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
 
-_SINGLE_TURN_COUNT_SQL = (
-    f"SELECT COUNT(*) AS scanned FROM ({_SINGLE_TURN_TARGETS})"  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
-)
-
 # The two targets above without their agent filter, counted per agent: what
 # `count_by_agent` reports when the configured name matched nothing.
 _MULTI_TURN_COUNT_BY_AGENT_SQL = f"""
@@ -228,42 +226,219 @@ LIMIT 1
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
 
 
-def _build_scanned_count_sql(targets: str) -> str:
-    """Build a query calculating the total count of matching target records.
+_ATTR_OPERATION_NAME = "gen_ai.operation.name"
+_ATTR_FINISH_REASONS = "gen_ai.response.finish_reasons"
+_ATTR_INPUT_TOKENS = "gen_ai.usage.input_tokens"
+_ATTR_OUTPUT_TOKENS = "gen_ai.usage.output_tokens"
+_ATTR_TOOL_NAME = "gen_ai.tool.name"
+
+
+def _build_attribute_sql(key: str) -> str:
+    """Builds a span attribute read as a string, from the spans table ``s``.
 
     Args:
-        targets: Target selection subquery SQL fragment.
+        key: OpenTelemetry attribute key.
 
     Returns:
-        SQL query returning the total record count as ``scanned``.
+        A STRING expression, NULL where the span lacks the attribute.
     """
-    return f"SELECT COUNT(*) AS scanned FROM ({targets})"  # noqa: S608 - may embed agent selector SQL, gated by precheck_selector's table guard and dry-run allowlist
+    return f"""JSON_VALUE(s.attributes, '$."{key}"')"""
 
 
-def _build_multi_turn_sql(targets: str, table_ref: str) -> str:
-    """Build the session-level ingestion query over ``targets``.
-
-    Maps sampled sessions to trace IDs to aggregate all child spans per trace.
-    Random sampling and limit application occur inside the CTE to ensure
-    unbiased sampling when matches exceed the evaluation budget. A row's
-    ``log_windows`` group its traces by the hour they start in, so the logs of
-    a session spread over days are read one active hour at a time.
+def _build_token_sql(key: str) -> str:
+    """Builds a span's token count attribute read as an integer.
 
     Args:
-        targets: Targets CTE SQL fragment projecting ``session_id``.
+        key: OpenTelemetry attribute key of the count.
+
+    Returns:
+        An INT64 expression, NULL where the span lacks the attribute.
+    """
+    return f"SAFE_CAST({_build_attribute_sql(key)} AS INT64)"
+
+
+_FINISH_REASON_TEXT_SQL = (
+    f"NULLIF({_build_attribute_sql(_ATTR_FINISH_REASONS)}, '')"
+)
+
+# The span's finish reasons. OpenTelemetry defines the attribute as a string
+# array; the second read accepts an exporter that wrote the array as JSON text,
+# and the third one that wrote a single reason as a plain string. An empty
+# string records no reason.
+_FINISH_REASONS_SQL = f"""COALESCE(
+          JSON_VALUE_ARRAY(s.attributes, '$."{_ATTR_FINISH_REASONS}"'),
+          JSON_VALUE_ARRAY({_FINISH_REASON_TEXT_SQL}),
+          IF({_FINISH_REASON_TEXT_SQL} IS NULL, NULL, [{_FINISH_REASON_TEXT_SQL}])
+        )"""
+
+
+def _build_trace_measures_sql(table_ref: str) -> str:
+    """Builds the risk measures of every trace in the window, one turn each.
+
+    Reads every span, not only the agent's: execution spans such as
+    ``execute_tool`` may carry neither the agent name nor the session id, so
+    they are tied to a trajectory by ``trace_id`` alone.
+
+    Args:
+        table_ref: Fully-qualified spans table.
+
+    Returns:
+        SQL subquery projecting ``trace_id``, `sampling.MEASURE_COLUMNS` with
+        ``turn_ms`` for ``slowest_turn_ms``, and one row per trace.
+    """
+    operation = _build_attribute_sql(_ATTR_OPERATION_NAME)
+    input_tokens = _build_token_sql(_ATTR_INPUT_TOKENS)
+    output_tokens = _build_token_sql(_ATTR_OUTPUT_TOKENS)
+    # ADK fails an `execute_tool` span both when the tool raises, which also
+    # records an `exception` event, and when the tool's result reports a
+    # failure, which records none.
+    tool_reported_error = f"""COALESCE(
+          {operation} = 'execute_tool'
+            AND s.status.code = 2
+            AND NOT EXISTS(
+              SELECT 1 FROM UNNEST(s.events) AS event
+              WHERE event.name = 'exception'
+            ),
+          FALSE
+        )"""  # noqa: S608 - trusted identifiers and fixed SQL
+    return f"""
+    SELECT
+      spans.trace_id,
+      spans.has_error,
+      spans.has_abnormal_finish,
+      spans.has_tool_reported_error,
+      tools.busy_turn_calls,
+      spans.total_tokens,
+      spans.turn_ms
+    FROM (
+      SELECT
+        s.trace_id,
+        -- Only GenAI spans count: other instrumentation also sets an error
+        -- status, such as an HTTP client span for a request that was retried
+        -- successfully.
+        LOGICAL_OR(
+          {operation} IS NOT NULL
+            AND s.status.code = 2
+            AND NOT {tool_reported_error}
+        ) AS has_error,
+        LOGICAL_OR({tool_reported_error}) AS has_tool_reported_error,
+        LOGICAL_OR(EXISTS(
+          SELECT 1 FROM UNNEST({_FINISH_REASONS_SQL}) AS reason
+          WHERE {sampling.build_abnormal_finish_sql("reason")}
+        )) AS has_abnormal_finish,
+        SUM(IF(
+          {operation} = 'generate_content'
+            AND ({input_tokens} IS NOT NULL OR {output_tokens} IS NOT NULL),
+          COALESCE({input_tokens}, 0) + COALESCE({output_tokens}, 0),
+          NULL
+        )) AS total_tokens,
+        TIMESTAMP_DIFF(MAX(s.end_time), MIN(s.start_time), MILLISECOND) AS turn_ms
+      FROM `{table_ref}` AS s
+      WHERE s.start_time BETWEEN @window_start AND @window_end
+      GROUP BY s.trace_id
+    ) AS spans
+    LEFT JOIN (
+      SELECT trace_id, MAX(calls) AS busy_turn_calls
+      FROM (
+        SELECT s.trace_id, {_build_attribute_sql(_ATTR_TOOL_NAME)} AS tool, COUNT(*) AS calls
+        FROM `{table_ref}` AS s
+        WHERE s.start_time BETWEEN @window_start AND @window_end
+          AND {operation} = 'execute_tool'
+          -- ADK's hand-off to another agent routes the turn rather than doing
+          -- its work.
+          AND {_build_attribute_sql(_ATTR_TOOL_NAME)} IS DISTINCT FROM 'transfer_to_agent'
+        GROUP BY s.trace_id, tool
+      )
+      GROUP BY trace_id
+    ) AS tools USING (trace_id)
+"""  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+
+
+def _build_measures_sql(metric_type: MetricType, table_ref: str) -> str:
+    """Builds the risk measures of each session or trace in the window.
+
+    A turn is a trace. The properties, per `sampling.MEASURE_COLUMNS`:
+
+    - ``has_error``: a GenAI span (one with ``gen_ai.operation.name``) whose
+      status code is 2, an error, other than one ``has_tool_reported_error``
+      counts.
+    - ``has_abnormal_finish``: ``gen_ai.response.finish_reasons`` holds a value
+      outside `sampling.NORMAL_FINISH_REASONS`, such as ``length``,
+      ``safety`` or ``error``, which ADK writes for Gemini's ``OTHER``. The
+      span's status is not an error.
+    - ``has_tool_reported_error``: an ``execute_tool`` span whose status code
+      is 2 without an ``exception`` event, which ADK 2.13 writes when the
+      tool's result reports a failure rather than the tool raising one (a
+      function tool flags a non-empty ``error``, an MCP tool ``isError``), and
+      for a call to a tool the agent does not have.
+    - ``busy_turn_calls``: the most ``execute_tool`` spans for one
+      ``gen_ai.tool.name`` other than ``transfer_to_agent`` in one trace.
+    - ``total_tokens``: ``gen_ai.usage.input_tokens`` plus
+      ``gen_ai.usage.output_tokens`` over the ``generate_content`` spans.
+    - ``slowest_turn_ms``: the longest trace, from its first span's start in
+      the window to its last span's end.
+
+    Args:
+        metric_type: The unit measured: sessions for ``MULTI_TURN``, traces
+            for ``SINGLE_TURN``.
+        table_ref: Fully-qualified spans table.
+
+    Returns:
+        SQL subquery projecting the unit's id column and
+        `sampling.MEASURE_COLUMNS`.
+    """
+    traces = _build_trace_measures_sql(table_ref)
+    if metric_type is MetricType.SINGLE_TURN:
+        return f"""
+  SELECT
+    trace_id, has_error, has_abnormal_finish, has_tool_reported_error, busy_turn_calls, total_tokens,
+    turn_ms AS slowest_turn_ms
+  FROM ({traces})
+"""  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+    return f"""
+  SELECT
+    sessions.session_id,
+    LOGICAL_OR(traces.has_error) AS has_error,
+    LOGICAL_OR(traces.has_abnormal_finish) AS has_abnormal_finish,
+    LOGICAL_OR(traces.has_tool_reported_error) AS has_tool_reported_error,
+    MAX(traces.busy_turn_calls) AS busy_turn_calls,
+    SUM(traces.total_tokens) AS total_tokens,
+    MAX(traces.turn_ms) AS slowest_turn_ms
+  FROM (
+    SELECT JSON_VALUE(attributes, '$."{ATTR_SESSION_ID}"') AS session_id, trace_id
+    FROM `{table_ref}`
+    WHERE start_time BETWEEN @window_start AND @window_end
+      AND JSON_VALUE(attributes, '$."{ATTR_AGENT_NAME}"') = @agent_name
+      AND JSON_VALUE(attributes, '$."{ATTR_SESSION_ID}"') IS NOT NULL
+    GROUP BY session_id, trace_id
+  ) AS sessions
+  JOIN ({traces}) AS traces USING (trace_id)
+  GROUP BY sessions.session_id
+"""  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
+
+
+def _build_multi_turn_sql(target_ctes: str, table_ref: str) -> str:
+    """Build the session-level ingestion query over the sampled sessions.
+
+    Maps sampled sessions to trace IDs to aggregate all child spans per trace.
+    A row's ``log_windows`` group its traces by the hour they start in, so the
+    logs of a session spread over days are read one active hour at a time.
+
+    Args:
+        target_ctes: Common table expressions ending in ``TargetSessions``,
+            which projects ``session_id`` and ``sampling``.
         table_ref: Fully-qualified table containing Cloud Trace spans.
 
     Returns:
         Complete multi-turn SQL query.
     """
     return f"""
-WITH TargetSessions AS (
-{targets}
-  ORDER BY RAND()
-  LIMIT @limit
-),
+WITH {target_ctes},
 TargetTraces AS (
-  SELECT s.trace_id AS trace_id, t.session_id AS session_id
+  SELECT
+    s.trace_id AS trace_id,
+    t.session_id AS session_id,
+    ANY_VALUE(t.{sampling.SAMPLING_COLUMN}) AS {sampling.SAMPLING_COLUMN}
   FROM `{table_ref}` AS s
   JOIN TargetSessions AS t
     ON JSON_VALUE(s.attributes, '$."{ATTR_SESSION_ID}"') = t.session_id
@@ -279,10 +454,12 @@ Sessions AS (
     ) AS traces,
     ARRAY_AGG(
       agent_revision IGNORE NULLS ORDER BY trace_start DESC LIMIT 1
-    )[SAFE_OFFSET(0)] AS agent_revision
+    )[SAFE_OFFSET(0)] AS agent_revision,
+    ANY_VALUE({sampling.SAMPLING_COLUMN}) AS {sampling.SAMPLING_COLUMN}
   FROM (
     SELECT
       t.session_id AS session_id,
+      ANY_VALUE(t.{sampling.SAMPLING_COLUMN}) AS {sampling.SAMPLING_COLUMN},
       s.trace_id AS trace_id,
       MIN(s.start_time) AS trace_start,
       MAX(s.end_time) AS trace_end,
@@ -310,16 +487,24 @@ FROM Sessions
 """  # noqa: S608 - may embed agent selector SQL, gated by precheck_selector's table guard and dry-run allowlist
 
 
-# Samples traces directly up to the evaluation budget for single-turn evaluation.
-# A row's one log window is its trace's own time range.
-_SINGLE_TURN_SQL = f"""
-WITH TargetTraces AS (
-{_SINGLE_TURN_TARGETS}
-  ORDER BY RAND()
-  LIMIT @limit
-)
+def _build_single_turn_sql(target_ctes: str, table_ref: str) -> str:
+    """Build the trace-level ingestion query over the sampled traces.
+
+    A row's one log window is its trace's own time range.
+
+    Args:
+        target_ctes: Common table expressions ending in ``TargetTraces``,
+            which projects ``trace_id`` and ``sampling``.
+        table_ref: Fully-qualified table containing Cloud Trace spans.
+
+    Returns:
+        Complete single-turn SQL query.
+    """
+    return f"""
+WITH {target_ctes}
 SELECT
   s.trace_id AS trace_id,
+  ANY_VALUE(t.{sampling.SAMPLING_COLUMN}) AS {sampling.SAMPLING_COLUMN},
   JSON_VALUE(ANY_VALUE(s.attributes), '$."{ATTR_SESSION_ID}"') AS session_id,
   {_LATEST_SPAN_REVISION} AS agent_revision,
   ARRAY_AGG({_SPAN_STRUCT} ORDER BY s.start_time ASC) AS spans,
@@ -328,7 +513,7 @@ SELECT
     MIN(s.start_time) AS start_time,
     MAX(s.end_time) AS end_time
   )] AS log_windows
-FROM `{{table_ref}}` AS s
+FROM `{table_ref}` AS s
 JOIN TargetTraces AS t USING (trace_id)
 WHERE {_JOIN_BACK_WINDOW}
 GROUP BY s.trace_id
@@ -365,6 +550,7 @@ class CloudOpsFetcher(BigQueryJobFetcher):
         selector_sql: str = "",
         selector_ai_model: str = "",
         job_timeout_ms: int = DEFAULT_JOB_TIMEOUT_MS,
+        sampling_method: sampling.SamplingMethod = sampling.SamplingMethod.UNIFORM,
     ) -> None:
         """Initialize the fetcher.
 
@@ -388,6 +574,8 @@ class CloudOpsFetcher(BigQueryJobFetcher):
                 (see `BigQueryJobFetcher`).
             job_timeout_ms: Server-side execution timeout in milliseconds for
                 BigQuery query jobs (see `BigQueryJobFetcher`).
+            sampling_method: How trajectories are picked from the candidates
+                (see `BigQueryJobFetcher`).
         """
         super().__init__(
             project_id=project_id,
@@ -401,6 +589,7 @@ class CloudOpsFetcher(BigQueryJobFetcher):
             selector_sql=selector_sql,
             selector_ai_model=selector_ai_model,
             job_timeout_ms=job_timeout_ms,
+            sampling_method=sampling_method,
         )
         self._converter = TraceAgentDataConverter(
             gcs_reader=gcs_reader or CachingGcsReader()
@@ -408,17 +597,24 @@ class CloudOpsFetcher(BigQueryJobFetcher):
         # Message content is logged where the spans are, in the agent's project.
         self._log_fetcher = LogFetcher(observed_project_id or project_id)
 
+    def _resolve_candidates(self, metric_type: MetricType) -> tuple[str, str]:
+        if metric_type is MetricType.MULTI_TURN:
+            return self._resolve_multi_turn_targets(), "session_id"
+        return self._substitute_table_ref(_SINGLE_TURN_TARGETS), "trace_id"
+
     def _build_ingestion_sql(self, metric_type: MetricType) -> str:
         if metric_type is MetricType.MULTI_TURN:
             return _build_multi_turn_sql(
-                self._resolve_multi_turn_targets(), self.table_ref
+                self._build_target_ctes(metric_type, "TargetSessions"),
+                self.table_ref,
             )
-        return self._substitute_table_ref(_SINGLE_TURN_SQL)
+        return _build_single_turn_sql(
+            self._build_target_ctes(metric_type, "TargetTraces"),
+            self.table_ref,
+        )
 
-    def _build_count_sql(self, metric_type: MetricType) -> str:
-        if metric_type is MetricType.MULTI_TURN:
-            return _build_scanned_count_sql(self._resolve_multi_turn_targets())
-        return self._substitute_table_ref(_SINGLE_TURN_COUNT_SQL)
+    def _build_measures_sql(self, metric_type: MetricType) -> str:
+        return _build_measures_sql(metric_type, self.table_ref)
 
     def _build_count_by_agent_sql(self, metric_type: MetricType) -> str:
         if metric_type is MetricType.MULTI_TURN:

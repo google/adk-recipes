@@ -33,6 +33,7 @@ from ambient_quality_agent.tools.trajectories.bigquery_reader import (
 )
 from ambient_quality_agent.tools.trajectories.models import (
     IngestStatus,
+    SamplingSignals,
     TrajectoryProcessingState,
 )
 from ambient_quality_agent.tools.trajectories.reader import (
@@ -148,6 +149,34 @@ def test_daily_outcomes_groups_by_day_and_outcome() -> None:
     ]
 
 
+def test_daily_outcomes_estimate_all_traffic_from_the_probabilities() -> None:
+    client = _query_returning(
+        [
+            {
+                "day": dt.date(2026, 6, 1),
+                "outcome": "no_insight",
+                "trajectories": 2,
+                "estimated_trajectories": 30.0,
+            },
+            {
+                "day": dt.date(2026, 6, 2),
+                "outcome": "no_insight",
+                "trajectories": 1,
+                "estimated_trajectories": None,
+            },
+        ]
+    )
+
+    days = _reader(client).count_daily_outcomes()
+
+    sql = " ".join(_sql(client.query.call_args_list[0]).split())
+    assert "SUM(1 / t.inclusion_probability)" in sql
+    # One trajectory without a probability leaves its bucket without an
+    # estimate rather than a smaller one.
+    assert "IF( COUNTIF(t.inclusion_probability IS NULL) > 0, NULL," in sql
+    assert [d.estimated_trajectories for d in days] == [30.0, None]
+
+
 def test_daily_outcomes_scopes_to_the_agent_and_the_window() -> None:
     client = _query_returning([])
 
@@ -256,6 +285,27 @@ def test_a_row_carries_the_ids_a_dot_is_drawn_from() -> None:
     assert rows[0].source_trace_ids == ["trace-1", "trace-2"]
     assert rows[0].ingest_status is IngestStatus.INGESTED
     assert rows[0].outcome is TrajectoryProcessingState.IN_AN_INSIGHT
+
+
+def test_a_row_carries_how_it_was_picked() -> None:
+    client = _query_returning(
+        [{"total": 1}],
+        [
+            _trajectory_row(
+                sampling_weight=3.0,
+                inclusion_probability=0.4,
+                sampling_signals={"has_error": False, "cost_tail": 1.0},
+            )
+        ],
+    )
+
+    rows, _ = _reader(client).list_investigation_trajectories(
+        limit=10, offset=0
+    )
+
+    assert rows[0].sampling_weight == 3.0
+    assert rows[0].inclusion_probability == 0.4
+    assert rows[0].sampling_signals == SamplingSignals(cost_tail=1.0)
 
 
 def test_list_investigation_trajectories_filters_by_outcome_with_the_same_case() -> (
