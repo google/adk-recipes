@@ -1,0 +1,140 @@
+name: 📊 Recipe Telemetry Sync
+
+# Collect segmented recipe deployment and image-pull telemetry across all live
+# recipes and sync the results to a dedicated tab on the tracking Google Sheet.
+#
+# Zero client interference
+# ------------------------
+# Customer recipe deployments never call Google Sheets or any external webhook.
+# Live segmentation comes from two fail-open channels:
+#   1. Runtime `x-goog-api-client` / `user-agent` headers carrying a 1-segment
+#      `gccl/<version>-<recipe>-<surface>-<channel>` token on standard Vertex AI
+#      and Google Cloud API calls.
+#   2. Artifact Registry image pull audit logs (`Docker-GetManifest`) in
+#      `adk-samples-repo-gcp-support`, segmented by recipe, tag (`:latest` vs.
+#      pinned build tag), and caller surface (Agent Engine, Cloud Run, external).
+#
+# This workflow runs in GitHub Actions, queries Artifact Registry and Cloud
+# Logging via Workload Identity Federation, writes a Markdown report to the job
+# summary, and updates the "Recipe Telemetry" and "Telemetry Log" tabs on the
+# target Google Sheet (`1-Asr-QrGUaBheoTkUASroNI9UA1rCgMV6jyxWGpLa7Q`).
+#
+# Required GCP / Google Sheets setup on `adk-samples-repo-gcp-support`:
+#   - APIs enabled: `artifactregistry.googleapis.com`, `logging.googleapis.com`,
+#     `sheets.googleapis.com`.
+#   - `wif-service-account` granted `roles/logging.privateLogViewer` (Data
+#     Access audit logs are private and not covered by `roles/logging.viewer`).
+#   - Data Access (`DATA_READ`) audit logging enabled for
+#     `artifactregistry.googleapis.com`.
+#   - Target Google Sheet shared with `wif-service-account` as Editor.
+
+on:
+  schedule:
+    # Weekly, Tuesday 05:17 UTC (after `recipe-images.yml` at 04:23 UTC).
+    - cron: "17 5 * * 2"
+  workflow_dispatch:
+    inputs:
+      spreadsheet_id:
+        description: "Google Sheet ID to sync telemetry into"
+        type: string
+        required: false
+        default: "1-Asr-QrGUaBheoTkUASroNI9UA1rCgMV6jyxWGpLa7Q"
+      sheet_gid:
+        description: "Optional worksheet GID (e.g. 567149855) to target for the live snapshot"
+        type: string
+        required: false
+        default: "567149855"
+      lookback_days:
+        description: "Days of Artifact Registry pull logs to aggregate"
+        type: string
+        required: false
+        default: "30"
+      dry_run:
+        description: "Collect and report telemetry without writing to Google Sheets"
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  WORKLOAD_IDENTITY_PROVIDER: projects/148460639759/locations/global/workloadIdentityPools/adk-samples-github-pool/providers/adk-samples-github-provider
+  SERVICE_ACCOUNT: wif-service-account@adk-samples-repo-gcp-support.iam.gserviceaccount.com
+  GCP_PROJECT_ID: adk-samples-repo-gcp-support
+
+jobs:
+  sync-telemetry:
+    name: Collect & sync recipe telemetry
+    # The weekly schedule would otherwise run and fail WIF auth in every fork.
+    if: github.repository == 'google/adk-recipes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # ratchet:actions/setup-python@v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # ratchet:google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform.read-only,https://www.googleapis.com/auth/spreadsheets
+
+      - name: Collect telemetry and sync to Google Sheet
+        env:
+          GCP_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          SPREADSHEET_ID: ${{ inputs.spreadsheet_id || '1-Asr-QrGUaBheoTkUASroNI9UA1rCgMV6jyxWGpLa7Q' }}
+          SHEET_GID: ${{ github.event_name == 'schedule' && '567149855' || inputs.sheet_gid }}
+          LOOKBACK_DAYS: ${{ inputs.lookback_days || '30' }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+          SERVICE_ACCOUNT: ${{ env.SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          args=(
+            --spreadsheet-id="${SPREADSHEET_ID}"
+            --sheet-gid="${SHEET_GID}"
+            --project-id="${PROJECT_ID}"
+            --service-account="${SERVICE_ACCOUNT}"
+            --lookback-days="${LOOKBACK_DAYS}"
+            --out-json "${RUNNER_TEMP}/recipe-telemetry.json"
+            --out-md "${RUNNER_TEMP}/recipe-telemetry.md"
+          )
+          if [ "${DRY_RUN:-false}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          python3 .github/scripts/sync_recipe_telemetry_sheet.py "${args[@]}"
+
+      - name: Publish telemetry summary
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -s "${RUNNER_TEMP}/recipe-telemetry.md" ]; then
+            cat "${RUNNER_TEMP}/recipe-telemetry.md" >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Upload telemetry snapshot artifact
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # ratchet:actions/upload-artifact@v7.0.2
+        with:
+          name: recipe-telemetry-snapshot
+          path: |
+            ${{ runner.temp }}/recipe-telemetry.json
+            ${{ runner.temp }}/recipe-telemetry.md
+          retention-days: 30
+          if-no-files-found: ignore

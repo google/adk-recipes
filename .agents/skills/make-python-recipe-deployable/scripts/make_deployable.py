@@ -38,11 +38,13 @@ files for a recipe that cannot host them.
 
   - legacy-app-utils  [GATE]
         `<pkg>/app_utils/` must not contain the old ASP-era generation
-        (telemetry.py, typing.py, deploy.py, memory_config.py). Filenames do
-        not collide with the new set, but the two wire telemetry and services
-        differently: the old fast_api_app.py imports the old modules and
-        defines its own /feedback route, so overwriting the entrypoint either
-        orphans them or double-wires telemetry. NEEDS_INPUT, script STOPS.
+        (telemetry.py, typing.py, deploy.py, memory_config.py). Only
+        telemetry.py overlaps by filename with the new set (and is
+        distinguished by content via `_is_legacy_app_utils_file()`), but the
+        two wire telemetry and services differently: the old fast_api_app.py
+        imports the old modules and defines its own /feedback route, so
+        overwriting the entrypoint either orphans them or double-wires
+        telemetry. NEEDS_INPUT, script STOPS.
 
   - backing-infra  [GATE, advisory]
         Detects an existing infra/ or terraform/ directory, or imports of
@@ -55,7 +57,7 @@ files for a recipe that cannot host them.
         below.
 
   - serving-files
-        The five files from `deployability.required_files`, copied from
+        The six files from `deployability.required_files`, copied from
         resources/templates/ with `__AGENT_PACKAGE__` / `__PROJECT_NAME__`
         substituted. An existing file is never overwritten without --overwrite.
 
@@ -219,6 +221,7 @@ import shutil
 import subprocess
 import sys
 import time
+import tomllib
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
@@ -226,7 +229,6 @@ from pathlib import Path
 from typing import Any
 
 import tomlkit
-import tomllib
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import InvalidVersion, Version
 from ruamel.yaml import YAML
@@ -827,6 +829,28 @@ def check_already_deployable(
     )
 
 
+def _is_legacy_app_utils_file(path: Path) -> bool:
+    """Return True if `path` is a legacy ASP-era app_utils file.
+
+    Our own `telemetry.py` template defines `register_adk_telemetry` (without
+    ASP's `setup_telemetry`) and must not trip the legacy gate on a subsequent
+    run; an ASP-era `telemetry.py` still does.
+    """
+    if not path.is_file():
+        return False
+    if path.name == "telemetry.py":
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if (
+                "def register_adk_telemetry" in text
+                and "def setup_telemetry" not in text
+            ):
+                return False
+        except OSError:
+            pass
+    return True
+
+
 def check_legacy_app_utils(package_dir: Path, legacy_files: list[str]) -> Check:
     """Stop if the recipe carries the old ASP-era app_utils generation."""
     app_utils = package_dir / "app_utils"
@@ -836,7 +860,9 @@ def check_legacy_app_utils(package_dir: Path, legacy_files: list[str]) -> Check:
             status=CLEAN,
             message="No existing app_utils/ — nothing to collide with.",
         )
-    present = sorted(f for f in legacy_files if (app_utils / f).is_file())
+    present = sorted(
+        f for f in legacy_files if _is_legacy_app_utils_file(app_utils / f)
+    )
     if not present:
         return Check(
             id="legacy-app-utils",
@@ -1855,8 +1881,8 @@ def _docker(
     CompletedProcess shape so every caller has one thing to inspect.
     """
     try:
-        return subprocess.run(
-            ["docker", *args],
+        return subprocess.run(  # noqa: S603
+            ["docker", *args],  # noqa: S607
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -1951,7 +1977,7 @@ def lockfile_is_current(
         return False, "No uv.lock in the recipe."
     try:
         proc = subprocess.run(
-            ["uv", "lock", "--check"],
+            ["uv", "lock", "--check"],  # noqa: S607
             cwd=recipe_dir,
             capture_output=True,
             text=True,
@@ -2052,7 +2078,10 @@ def parse_env_example(path: Path) -> dict[str, str]:
         key = key.strip()
         if not key.isidentifier():
             continue
-        env[key] = value.split(" #")[0].strip().strip("'\"")
+        val = value.split(" #")[0].strip().strip("'\"")
+        if val.startswith("<") and val.endswith(">"):
+            continue
+        env[key] = val
     return env
 
 
@@ -2063,7 +2092,7 @@ def _probe(url: str, timeout: int = 10) -> tuple[int, str]:
     script's documented `uv run --with ...` invocation.
     """
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310
             return resp.status, resp.read(2048).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         return e.code, e.reason or ""

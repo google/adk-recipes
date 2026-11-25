@@ -658,6 +658,7 @@ deployability:
     - "<pkg>/app_utils/a2a.py"
     - "<pkg>/app_utils/services.py"
     - "<pkg>/app_utils/reasoning_engine_adapter.py"
+    - "<pkg>/app_utils/telemetry.py"
 
   # Write `agents-cli-manifest.yaml`. Kept out of required_files above because
   # it is metadata rather than a serving file, but emitted because it is
@@ -676,10 +677,12 @@ deployability:
   # generated file.
   emit_agents_cli_manifest: true
 
-  # The old ASP-era app_utils generation. Filenames do not collide with the
-  # new set, but the two wire telemetry and services differently, so a
-  # recipe carrying these needs a human migration decision rather than a
-  # mechanical merge. The skill stops when it finds any of them.
+  # The old ASP-era app_utils generation. Most filenames do not collide with
+  # the new set (telemetry.py overlaps by name and is distinguished by file
+  # content in make_deployable.py), and the two wire telemetry and services
+  # differently, so a recipe carrying legacy modules needs a human migration
+  # decision rather than a mechanical merge. The skill stops when it finds any
+  # legacy module.
   legacy_app_utils_files:
     - telemetry.py
     - typing.py

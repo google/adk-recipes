@@ -4,7 +4,8 @@ description: >
   Makes an existing Python recipe deployable: generates the serving files a
   container needs (Dockerfile, .dockerignore, fast_api_app.py,
   app_utils/a2a.py, app_utils/services.py,
-  app_utils/reasoning_engine_adapter.py) and configures the recipe to match
+  app_utils/reasoning_engine_adapter.py, app_utils/telemetry.py) and configures
+  the recipe to match
   (required serving dependencies, the App object in agent.py, the hatch wheel
   package, manifest.deployable). Interactive by design — it asks the recipe
   owner about runtime data directories and stops for a human decision when a
@@ -88,7 +89,7 @@ A2A" because the file exists.
 ## Rules for the agent
 
 1. **Confirm before applying.** Always run a dry-run first, show the plan, and
-   get a "yes" before `--apply`. The skill writes six files and edits three.
+   get a "yes" before `--apply`. The skill writes seven files and edits three.
 2. **Ask the questions in the Interview below** before applying — but only the
    ones the dry-run shows are relevant. Do not interrogate the owner about
    data directories for a recipe that has none.
@@ -146,9 +147,10 @@ If any check is `needs_input`, **stop**. The three that gate:
 - **`adk-version-floor`** — the specifier itself excludes the required version
   (a `<2.0.0` ceiling, an `==1.31.0` pin). Same conclusion.
 - **`legacy-app-utils`** — the package carries the old ASP-era generation
-  (`telemetry.py`, `typing.py`, `deploy.py`, `memory_config.py`). Filenames do
-  not collide with the new set, but the two wire telemetry and services
-  differently and the existing `fast_api_app.py` imports the old ones.
+  (`telemetry.py`, `typing.py`, `deploy.py`, `memory_config.py`). Most
+  filenames do not collide with the new set (`telemetry.py` overlaps by name
+  and is distinguished by content), and the two wire telemetry and services
+  differently while the existing `fast_api_app.py` imports the old ones.
   Generating over the top orphans them or double-wires telemetry. A human
   decides how to migrate.
 

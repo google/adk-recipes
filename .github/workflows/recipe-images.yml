@@ -209,7 +209,8 @@ jobs:
             ${{ matrix.image }}:latest
             ${{ matrix.image }}:${{ needs.matrix.outputs.build_tag }}
           build-args: |
-            AGENT_VERSION=${{ github.sha }}
+            AGENT_VERSION=${{ needs.matrix.outputs.build_tag }}
+            ADK_DEPLOY_CHANNEL=prebuilt
           # Must stay false with oci-mediatypes=false: BuildKit fails the build
           # with "cannot export attestations with oci-mediatypes=false".
           provenance: false
