@@ -211,6 +211,23 @@ describe("TopIssuesRail", () => {
     expect(second).not.toHaveTextContent("undiagnosed");
   });
 
+  it("leads with the estimated share, beside the reviewed count", async () => {
+    renderRail({
+      insights: [
+        insight({
+          insight_id: "a",
+          trajectory_count: 715,
+          estimated_share: 0.012,
+        }),
+      ],
+    });
+
+    const row = await rowLink(/calls file_expense/);
+    expect(row).toHaveTextContent(
+      "about 1.2% of conversations · 715 reviewed · undiagnosed",
+    );
+  });
+
   it("gives a long title a tooltip, its own direction and room to wrap", async () => {
     const long = "https://example.com/" + "x".repeat(200);
     renderRail({ insights: [insight({ label: long })] });

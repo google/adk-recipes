@@ -162,8 +162,10 @@ bq mk --table --schema /tmp/turns.json \
 
 To update tables in an existing deployment when new columns are added (for
 example, `agent_id` on `insights`, `analyses`, `analysis_mode`,
-`occurrence_state`, and `trajectory_ids` on `insight_occurrences`, or
-`agent_revision` on `trajectory_payloads`):
+`occurrence_state`, `trajectory_ids` and `estimated_trajectory_count` on
+`insight_occurrences`, `agent_revision` on `trajectory_payloads`, or
+`sampling_weight`, `inclusion_probability` and `sampling_signals` on
+`trajectories`):
 
 ```bash
 jq '.schema' terraform/modules/aqa/schemas/insights.json > /tmp/insights.json
@@ -174,6 +176,9 @@ bq update --schema /tmp/occ.json "$PROJECT:$DATASET.insight_occurrences"
 
 jq '.schema' terraform/modules/aqa/schemas/trajectory_payloads.json > /tmp/payloads.json
 bq update --schema /tmp/payloads.json "$PROJECT:$DATASET.trajectory_payloads"
+
+jq '.schema' terraform/modules/aqa/schemas/trajectories.json > /tmp/traj.json
+bq update --schema /tmp/traj.json "$PROJECT:$DATASET.trajectories"
 ```
 
 `bq` reads only table schemas from these files. Clustering, partitioning, and

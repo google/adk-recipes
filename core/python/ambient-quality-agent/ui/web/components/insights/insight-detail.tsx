@@ -38,9 +38,12 @@ const chatContextId = (investigationId: string): string | null => {
   const id = investigationId.slice(CHAT_INVESTIGATION_PREFIX.length);
   return id && id !== UNATTRIBUTED ? id : null;
 };
+
 import { PageHeader } from "@/components/nav/page-header";
+import { PickedSignalIcon } from "@/components/trajectory/picked-for";
 import { Button } from "@/components/ui/button";
 import { FailureNote } from "@/components/ui/failure-note";
+import { HelpPopover } from "@/components/ui/help-popover";
 import { InlineMarkdown } from "@/components/ui/inline-markdown";
 import { LoadingPane } from "@/components/ui/loading";
 import { RawJson } from "@/components/ui/raw-json";
@@ -55,6 +58,12 @@ import {
   isOccurrenceDiagnosed,
   type RootCause,
 } from "@/lib/aqua-api";
+import {
+  formatInsightReach,
+  formatPickedSignal,
+  listPickedFor,
+  SHARE_HELP,
+} from "@/lib/estimates";
 import { resolveSubAgent } from "@/lib/insight-agent";
 import { useIsChatContextLive } from "@/lib/insight-chats";
 import { focusRing, link, mono, textStyle } from "@/lib/typography";
@@ -344,9 +353,17 @@ export function InsightDetailView({ insightId }: { insightId: string }) {
             {insight.occurrence_count}{" "}
             {insight.occurrence_count === 1 ? "occurrence" : "occurrences"}
           </span>
-          <span>
-            {insight.trajectory_count}{" "}
-            {insight.trajectory_count === 1 ? "trajectory" : "trajectories"}
+          <span className="inline-flex items-center gap-1">
+            {formatInsightReach(
+              String(insight.trajectory_count),
+              insight.estimated_share,
+              insight.trajectory_count,
+            )}
+            {insight.estimated_share != null && (
+              <HelpPopover topic="the estimated share">
+                {SHARE_HELP}
+              </HelpPopover>
+            )}
           </span>
           <SubAgentItem insight={insight} />
           <span>{insight.impact} impact</span>
@@ -687,12 +704,34 @@ export function Occurrence({
               .map((trajectoryId) => {
                 const trace = occurrence.console_urls?.[trajectoryId];
                 const investigationId = occurrence.investigation_id;
+                const pickedFor = listPickedFor(
+                  occurrence.sampling_signals?.[trajectoryId],
+                );
+                const pickedText = pickedFor.map(formatPickedSignal).join(", ");
                 const chip = (
                   <>
                     <MessageSquare className="h-3 w-3" />
                     {trajectoryId.slice(0, 12)}
+                    {pickedFor.length > 0 && (
+                      <span className="inline-flex items-center gap-0.5">
+                        {pickedFor.map((signal) => (
+                          <PickedSignalIcon
+                            key={signal.key}
+                            signal={signal}
+                            className="h-3 w-3"
+                          />
+                        ))}
+                        <span className="sr-only">
+                          Prioritized for: {pickedText}
+                        </span>
+                      </span>
+                    )}
                   </>
                 );
+                const pickedNote =
+                  pickedFor.length > 0
+                    ? ` · prioritized for: ${pickedText}`
+                    : "";
                 const chipClass = cn(
                   textStyle.meta,
                   mono,
@@ -713,7 +752,7 @@ export function Occurrence({
                           investigationId: investigationId,
                           trajectoryId,
                         }}
-                        title={`Replay ${trajectoryId}`}
+                        title={`Replay ${trajectoryId}${pickedNote}`}
                         className={`${chipClass} transition-colors hover:border-foreground/40 hover:text-foreground`}
                       >
                         {chip}

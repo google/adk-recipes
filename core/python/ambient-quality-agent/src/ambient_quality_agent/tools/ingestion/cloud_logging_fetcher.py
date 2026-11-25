@@ -19,7 +19,8 @@ by a Cloud Logging sink that exports the
 ``gen_ai.client.inference.operation.details`` log (the shape produced by
 agents deployed with agents-cli). Ingestion reads a selected session's or
 trace's rows only within `JOIN_BACK_MARGIN_DAYS` of the window (see
-`build_join_back_window`).
+`build_join_back_window`). Weighted sampling scores a session or trace on the
+rows it recorded in the window (`_build_measures_sql`).
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from typing import Any
 
 from agentplatform._genai.types import EvalCase
 from ambient_quality_agent.tools.evaluation.models import MetricType
-from ambient_quality_agent.tools.ingestion import selector
+from ambient_quality_agent.tools.ingestion import sampling, selector
 from ambient_quality_agent.tools.ingestion.base import (
     DEFAULT_JOB_TIMEOUT_MS,
     BigQueryJobFetcher,
@@ -69,6 +70,13 @@ logger = logging.getLogger(__name__)
 _LABEL_SESSION_ID = "gen_ai_conversation_id"
 _LABEL_AGENT_NAME = "gen_ai_agent_name"
 _LABEL_SERVICE_VERSION = "service_version"
+
+# The ``labels.*`` columns weighted sampling reads (`_build_measures_sql`).
+_LABEL_FINISH_REASONS = "gen_ai_response_finish_reasons"
+_LABEL_INPUT_TOKENS = "gen_ai_usage_input_tokens"
+_LABEL_OUTPUT_TOKENS = "gen_ai_usage_output_tokens"
+_LABEL_ERROR_TYPE = "error_type"
+_OUTPUT_LABELS = ("gen_ai_output_messages", "gen_ai_output_messages_ref")
 
 # Sink column holding flattened OpenTelemetry attributes.
 _LABELS_COLUMN = "labels"
@@ -255,16 +263,136 @@ def _build_count_by_agent_sql(
 """  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
 
 
-def _build_scanned_count_sql(targets: str) -> str:
-    """Builds a query counting the total records selected by a targets subquery.
+def _build_error_sql(labels: Container[str]) -> str:
+    """Builds the test for a log entry that records a failed model call.
+
+    ADK writes no ``error.type`` on this log, and tool executions write no
+    entry at all, so the test is weak. ADK writes the entry when the model-call
+    span closes, including when the call raised, so an entry with neither a
+    finish reason nor output is read as a failure. That reading needs the table
+    to have both label columns: a sink that never received a finish reason or
+    output would otherwise read every entry as a failure. ``error.type`` is
+    read too, for an instrumentation that follows the OpenTelemetry convention
+    of setting it on a failed call.
 
     Args:
-        targets: Target selection subquery SQL fragment without placeholders.
+        labels: Subfield names present in the table's ``labels`` STRUCT.
 
     Returns:
-        SQL query returning the total record count as ``scanned``.
+        A BOOL expression over one row.
     """
-    return f"SELECT COUNT(*) AS scanned FROM ({targets})"  # noqa: S608 - may embed agent selector SQL, gated by precheck_selector's table guard and dry-run allowlist
+    error_type = _build_label_expression(_LABEL_ERROR_TYPE, labels, alias="")
+    outputs = [name for name in _OUTPUT_LABELS if name in labels]
+    if _LABEL_FINISH_REASONS not in labels or not outputs:
+        return f"{error_type} IS NOT NULL"
+    # An empty label records nothing, as in `_build_measures_sql`.
+    silent = " AND ".join(
+        f"NULLIF({_build_label_expression(name, labels, alias='')}, '') IS NULL"
+        for name in (_LABEL_FINISH_REASONS, *outputs)
+    )
+    return f"({error_type} IS NOT NULL OR ({silent}))"
+
+
+def _build_measures_sql(
+    labels: Container[str], metric_type: MetricType, table_ref: str
+) -> str:
+    """Builds the risk measures of each session or trace in the window.
+
+    One entry is one model call, and a turn is a trace. Every entry of a
+    session or trace that holds an entry of the observed agent counts,
+    whichever agent made the call, so the model calls of a sub-agent it
+    delegated to count too. The properties, per `sampling.MEASURE_COLUMNS`:
+
+    - ``has_error``: an entry `_build_error_sql` reads as a failure.
+    - ``has_abnormal_finish``: ``labels.gen_ai_response_finish_reasons``, a
+      JSON array or a single plain reason, holds a value outside
+      `sampling.NORMAL_FINISH_REASONS`.
+    - ``has_tool_reported_error``: FALSE; the log records no tool calls.
+    - ``busy_turn_calls``: the most model calls (distinct ``spanId``) in one
+      trace. The log records no tool calls.
+    - ``total_tokens``: ``labels.gen_ai_usage_input_tokens`` plus
+      ``labels.gen_ai_usage_output_tokens``, taken once per ``spanId``.
+    - ``slowest_turn_ms``: the longest trace, from its first entry in the
+      window to its last. An entry is written when its call ends, so this
+      leaves out the first call's own duration.
+
+    Args:
+        labels: Subfield names present in the table's ``labels`` STRUCT.
+        metric_type: The unit measured: sessions for ``MULTI_TURN``, traces
+            for ``SINGLE_TURN``.
+        table_ref: Fully-qualified sink table.
+
+    Returns:
+        SQL subquery projecting the unit's id column and
+        `sampling.MEASURE_COLUMNS`.
+    """
+    if metric_type is MetricType.MULTI_TURN:
+        id_column = "session_id"
+        unit = _build_label_expression(_LABEL_SESSION_ID, labels, alias="")
+    else:
+        id_column, unit = "trace_id", "trace"
+    # An empty label records no reason.
+    finish_reasons = f"NULLIF({_build_label_expression(_LABEL_FINISH_REASONS, labels, alias='')}, '')"
+    input_tokens, output_tokens = (
+        f"SAFE_CAST({_build_label_expression(name, labels, alias='')} AS INT64)"
+        for name in (_LABEL_INPUT_TOKENS, _LABEL_OUTPUT_TOKENS)
+    )
+    agent_name = _build_label_expression(_LABEL_AGENT_NAME, labels, alias="")
+    return f"""
+  SELECT
+    {id_column},
+    LOGICAL_OR(has_error) AS has_error,
+    LOGICAL_OR(has_abnormal_finish) AS has_abnormal_finish,
+    FALSE AS has_tool_reported_error,
+    MAX(calls) AS busy_turn_calls,
+    SUM(total_tokens) AS total_tokens,
+    MAX(turn_ms) AS slowest_turn_ms
+  FROM (
+    SELECT
+      {id_column},
+      trace,
+      LOGICAL_OR(has_error) AS has_error,
+      LOGICAL_OR(has_abnormal_finish) AS has_abnormal_finish,
+      COUNT(*) AS calls,
+      SUM(tokens) AS total_tokens,
+      TIMESTAMP_DIFF(MAX(last_at), MIN(first_at), MILLISECOND) AS turn_ms
+    FROM (
+      SELECT
+        {unit} AS {id_column},
+        trace,
+        spanId,
+        LOGICAL_OR({_build_error_sql(labels)}) AS has_error,
+        LOGICAL_OR(EXISTS(
+          SELECT 1
+          FROM UNNEST(COALESCE(
+            JSON_VALUE_ARRAY({finish_reasons}),
+            IF({finish_reasons} IS NULL, NULL, [{finish_reasons}])
+          )) AS reason
+          WHERE {sampling.build_abnormal_finish_sql("reason")}
+        )) AS has_abnormal_finish,
+        IF(
+          MAX({input_tokens}) IS NULL AND MAX({output_tokens}) IS NULL,
+          NULL,
+          COALESCE(MAX({input_tokens}), 0) + COALESCE(MAX({output_tokens}), 0)
+        ) AS tokens,
+        MIN(timestamp) AS first_at,
+        MAX(timestamp) AS last_at
+      FROM `{table_ref}`
+      WHERE timestamp BETWEEN @window_start AND @window_end
+        AND {unit} IS NOT NULL
+        AND trace IS NOT NULL
+        AND {unit} IN (
+          SELECT {unit}
+          FROM `{table_ref}`
+          WHERE timestamp BETWEEN @window_start AND @window_end
+            AND {agent_name} = @agent_name
+        )
+      GROUP BY {id_column}, trace, spanId
+    )
+    GROUP BY {id_column}, trace
+  )
+  GROUP BY {id_column}
+"""  # noqa: S608 - trusted identifiers and fixed SQL; values are parameterized
 
 
 def _build_payload_ref_sql(labels: Container[str]) -> str | None:
@@ -295,28 +423,25 @@ LIMIT 1
 
 
 def _build_multi_turn_sql(
-    labels: Container[str], targets: str, table_ref: str
+    labels: Container[str], target_ctes: str, table_ref: str
 ) -> str:
     """Builds a multi-turn ingestion query to sample sessions and group rows by trace.
 
-    Interpolates `table_ref` directly because `targets` may contain custom SQL
-    with braces (e.g. regex quantifiers or JSON literals) that `str.format`
-    would misinterpret as template placeholders.
+    Interpolates `table_ref` directly because `target_ctes` may contain custom
+    SQL with braces (e.g. regex quantifiers or JSON literals) that
+    `str.format` would misinterpret as template placeholders.
 
     Args:
         labels: Column names present in the table's ``labels`` STRUCT.
-        targets: Resolved CTE subquery projecting ``session_id``.
+        target_ctes: Common table expressions ending in ``TargetSessions``,
+            which projects ``session_id`` and ``sampling``.
         table_ref: Fully-qualified BigQuery table reference (``project.dataset.table``).
 
     Returns:
         Executable SQL query.
     """
     return f"""
-WITH TargetSessions AS (
-{targets}
-  ORDER BY RAND()
-  LIMIT @limit
-)
+WITH {target_ctes}
 SELECT
   session_id,
   ARRAY_AGG(
@@ -325,10 +450,12 @@ SELECT
   ) AS traces,
   ARRAY_AGG(
     agent_revision IGNORE NULLS ORDER BY trace_start DESC LIMIT 1
-  )[SAFE_OFFSET(0)] AS agent_revision
+  )[SAFE_OFFSET(0)] AS agent_revision,
+  ANY_VALUE({sampling.SAMPLING_COLUMN}) AS {sampling.SAMPLING_COLUMN}
 FROM (
   SELECT
     ANY_VALUE({_build_label_expression(_LABEL_SESSION_ID, labels)}) AS session_id,
+    ANY_VALUE(t.{sampling.SAMPLING_COLUMN}) AS {sampling.SAMPLING_COLUMN},
     s.trace AS trace_id,
     MIN(s.timestamp) AS trace_start,
     {_build_latest_row_revision(labels)} AS agent_revision,
@@ -343,27 +470,29 @@ GROUP BY session_id
 """  # noqa: S608 - may embed agent selector SQL, gated by precheck_selector's table guard and dry-run allowlist
 
 
-def _build_single_turn_sql(labels: Container[str]) -> str:
-    """Builds the single-turn query to sample individual traces as evaluation cases.
+def _build_single_turn_sql(
+    labels: Container[str], target_ctes: str, table_ref: str
+) -> str:
+    """Builds the single-turn query over the sampled traces.
 
     Args:
         labels: Subfield names present in the table's ``labels`` STRUCT.
+        target_ctes: Common table expressions ending in ``TargetTraces``,
+            which projects ``trace_id`` and ``sampling``.
+        table_ref: Fully-qualified BigQuery table reference.
 
     Returns:
-        SQL query template containing a ``{table_ref}`` placeholder.
+        Executable SQL query.
     """
     return f"""
-WITH TargetTraces AS (
-{_build_single_turn_targets(labels)}
-  ORDER BY RAND()
-  LIMIT @limit
-)
+WITH {target_ctes}
 SELECT
   s.trace AS trace_id,
+  ANY_VALUE(t.{sampling.SAMPLING_COLUMN}) AS {sampling.SAMPLING_COLUMN},
   ANY_VALUE({_build_label_expression(_LABEL_SESSION_ID, labels)}) AS session_id,
   {_build_latest_row_revision(labels)} AS agent_revision,
   ARRAY_AGG({_build_row_struct(labels)} ORDER BY s.timestamp ASC) AS inference_rows
-FROM `{{table_ref}}` AS s
+FROM `{table_ref}` AS s
 JOIN TargetTraces AS t ON s.trace = t.trace_id
 WHERE {_JOIN_BACK_WINDOW}
 GROUP BY s.trace
@@ -407,6 +536,7 @@ class CloudLoggingFetcher(BigQueryJobFetcher):
         selector_sql: str = "",
         selector_ai_model: str = "",
         job_timeout_ms: int = DEFAULT_JOB_TIMEOUT_MS,
+        sampling_method: sampling.SamplingMethod = sampling.SamplingMethod.UNIFORM,
     ) -> None:
         """Initialize the fetcher.
 
@@ -430,6 +560,8 @@ class CloudLoggingFetcher(BigQueryJobFetcher):
                 (see `BigQueryJobFetcher`).
             job_timeout_ms: Server-side execution timeout in milliseconds for
                 BigQuery query jobs (see `BigQueryJobFetcher`).
+            sampling_method: How trajectories are picked from the candidates
+                (see `BigQueryJobFetcher`).
         """
         super().__init__(
             project_id=project_id,
@@ -443,6 +575,7 @@ class CloudLoggingFetcher(BigQueryJobFetcher):
             selector_sql=selector_sql,
             selector_ai_model=selector_ai_model,
             job_timeout_ms=job_timeout_ms,
+            sampling_method=sampling_method,
         )
         self._converter = TraceAgentDataConverter(
             gcs_reader=gcs_reader or CachingGcsReader()
@@ -480,20 +613,33 @@ class CloudLoggingFetcher(BigQueryJobFetcher):
             )
         return available
 
+    def _resolve_candidates(self, metric_type: MetricType) -> tuple[str, str]:
+        if metric_type is MetricType.MULTI_TURN:
+            return self._resolve_multi_turn_targets(), "session_id"
+        return (
+            self._substitute_table_ref(
+                _build_single_turn_targets(self._available_labels)
+            ),
+            "trace_id",
+        )
+
     def _build_ingestion_sql(self, metric_type: MetricType) -> str:
         labels = self._available_labels
         if metric_type is MetricType.MULTI_TURN:
             return _build_multi_turn_sql(
-                labels, self._resolve_multi_turn_targets(), self.table_ref
+                labels,
+                self._build_target_ctes(metric_type, "TargetSessions"),
+                self.table_ref,
             )
-        return self._substitute_table_ref(_build_single_turn_sql(labels))
+        return _build_single_turn_sql(
+            labels,
+            self._build_target_ctes(metric_type, "TargetTraces"),
+            self.table_ref,
+        )
 
-    def _build_count_sql(self, metric_type: MetricType) -> str:
-        labels = self._available_labels
-        if metric_type is MetricType.MULTI_TURN:
-            return _build_scanned_count_sql(self._resolve_multi_turn_targets())
-        return self._substitute_table_ref(
-            _build_scanned_count_sql(_build_single_turn_targets(labels))
+    def _build_measures_sql(self, metric_type: MetricType) -> str:
+        return _build_measures_sql(
+            self._available_labels, metric_type, self.table_ref
         )
 
     def _build_count_by_agent_sql(self, metric_type: MetricType) -> str:

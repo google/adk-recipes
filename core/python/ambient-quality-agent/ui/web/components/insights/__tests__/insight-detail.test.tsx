@@ -303,6 +303,38 @@ describe("Occurrence", () => {
     }
   });
 
+  it("marks a prioritized conversation with its signals' icons", async () => {
+    const occ = occurrence({
+      investigation_id: "inv-7",
+      evidence_trajectory_ids: ["case-0123456789ab", "case-abcdef012345"],
+      sampling_signals: {
+        "case-0123456789ab": {
+          has_error: false,
+          has_abnormal_finish: false,
+          has_tool_reported_error: true,
+          busy_turn_tail: 0,
+          cost_percentile: 0.95,
+          cost_tail: 0.5,
+          latency_tail: 0,
+        },
+      },
+    });
+
+    renderOccurrence(occ);
+
+    const chip = await screen.findByTitle(/Replay case-0123456789ab/);
+    expect(chip).toHaveAttribute(
+      "title",
+      "Replay case-0123456789ab · prioritized for: Tool reported failure, High token usage (top 5%)",
+    );
+    expect(chip.querySelectorAll("svg[aria-hidden]")).toHaveLength(3);
+    expect(
+      (await screen.findByTitle(/Replay case-abcdef012345/)).querySelectorAll(
+        "svg",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("shows a plain chip when the sighting records no investigation", async () => {
     // The replay lives under an investigation. Without one there is no URL to
     // build, and an id with nowhere to go is still worth showing.

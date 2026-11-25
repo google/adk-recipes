@@ -355,6 +355,64 @@ def test_a_started_run_carries_the_overrides_and_the_custom_trigger(
     assert record.custom_overrides.review_focus == "only booking failures"
 
 
+def test_a_started_run_keeps_the_sampling_it_was_asked_for(
+    fetcher: _Fetcher, mock_submit: mock.MagicMock
+) -> None:
+    context = StateContext()
+
+    result = _start(context, sampling="weighted")
+
+    record = get_stored_investigation(context.state, result["investigation_id"])
+    assert record.custom_overrides is not None
+    assert record.custom_overrides.sampling == "weighted"
+
+
+def test_the_preview_samples_its_examples_as_the_run_would(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A selector chose the slice, so its matches are sampled uniformly unless
+    weighted sampling is asked for."""
+    sampled: list[str] = []
+
+    def create_fetcher(
+        config: Any, _selector_sql: str, *, recorder: Any
+    ) -> _Fetcher:
+        """Records how the preview samples, and returns a fake fetcher.
+
+        Args:
+            config: The preview's configuration.
+            _selector_sql: The selector, unused.
+            recorder: The trajectory recorder to attach.
+
+        Returns:
+            A fake fetcher.
+        """
+        sampled.append(config.data_sampling)
+        built = _Fetcher()
+        built.recorder = recorder
+        return built
+
+    monkeypatch.setattr(preview, "fetcher_factory", create_fetcher)
+    monkeypatch.setattr(
+        preview, "store_factory", lambda _config: mock.MagicMock()
+    )
+
+    _preview(StateContext())
+    _preview(StateContext(), sampling="weighted")
+
+    assert sampled == ["uniform", "weighted"]
+
+
+@pytest.mark.parametrize("call", [_preview, _start])
+def test_an_unknown_sampling_is_refused_before_anything_runs(
+    call: Any, fetcher: _Fetcher
+) -> None:
+    result = call(StateContext(), sampling="risky")
+
+    assert "sampling" in result["error"]
+    assert fetcher.calls == []
+
+
 def test_a_refused_selector_starts_nothing(
     fetcher: _Fetcher, mock_submit: mock.MagicMock
 ) -> None:

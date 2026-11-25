@@ -36,6 +36,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ambient_quality_agent.core.labels import build_request_labels
+from ambient_quality_agent.tools.trajectories.models import SamplingSignals
 from google.cloud import bigquery
 
 if TYPE_CHECKING:
@@ -66,6 +67,46 @@ failed wrote nothing to duplicate.
 """
 
 _RETRY_BACKOFF_SECONDS = 2.0
+
+_SCHEMA_CHECK_TIMEOUT_SECONDS = 10
+"""Cap on the boot-time schema read: a wedged metadata call must not hold up
+the first request over a check that only logs."""
+
+_SAMPLING_SIGNALS_COLUMN = "sampling_signals"
+
+_INVESTIGATION_TRAJECTORY_COLUMNS = (
+    "run_id",
+    "agent_name",
+    "trajectory_id",
+    "created_at",
+    "source",
+    "source_session_id",
+    "source_trace_ids",
+    "ingest_status",
+    "sampling_weight",
+    "inclusion_probability",
+    _SAMPLING_SIGNALS_COLUMN,
+)
+"""Columns `BigQueryTrajectoryStore.record_investigation_trajectories`
+writes."""
+
+
+def list_investigation_trajectory_columns() -> list[str]:
+    """Lists the columns an investigation trajectory row is written to.
+
+    Returns:
+        The ``trajectories`` columns `record_investigation_trajectories`
+        writes, followed by the fields of its ``sampling_signals`` record as
+        ``sampling_signals.<field>``: a load naming a field the table lacks
+        fails like one naming a missing column.
+    """
+    return [
+        *_INVESTIGATION_TRAJECTORY_COLUMNS,
+        *(
+            f"{_SAMPLING_SIGNALS_COLUMN}.{name}"
+            for name in SamplingSignals.model_fields
+        ),
+    ]
 
 
 class BigQueryTrajectoryStore:
@@ -110,6 +151,38 @@ class BigQueryTrajectoryStore:
         """Fully-qualified ``project.dataset.table`` reference."""
         return f"{self._project_id}.{self._dataset}.{table}"
 
+    def list_missing_columns(self) -> list[str] | None:
+        """Lists the investigation trajectory columns the live table lacks.
+
+        Returns:
+            The missing entries of `list_investigation_trajectory_columns`, or
+            None when the table's schema could not be read.
+        """
+        try:
+            table = self._client.get_table(
+                self._build_table_ref(_INVESTIGATION_TRAJECTORIES_TABLE),
+                timeout=_SCHEMA_CHECK_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            logger.warning(
+                "could not read the trajectories table's schema; skipping the check",
+                exc_info=True,
+            )
+            return None
+        have = set()
+        for field in table.schema:
+            have.add(field.name)
+            if field.name == _SAMPLING_SIGNALS_COLUMN:
+                have.update(
+                    f"{field.name}.{sub_field.name}"
+                    for sub_field in field.fields
+                )
+        return [
+            name
+            for name in list_investigation_trajectory_columns()
+            if name not in have
+        ]
+
     def delete_investigation_trajectories(self, investigation_id: str) -> None:
         """Erases the investigation trajectories one investigation wrote.
 
@@ -142,6 +215,7 @@ class BigQueryTrajectoryStore:
         """
         if not investigation_trajectories:
             return
+        # Keys follow `_INVESTIGATION_TRAJECTORY_COLUMNS`.
         rows = [
             {
                 "run_id": t.investigation_id,
@@ -152,6 +226,13 @@ class BigQueryTrajectoryStore:
                 "source_session_id": t.source_session_id,
                 "source_trace_ids": list(t.source_trace_ids),
                 "ingest_status": t.ingest_status.value,
+                "sampling_weight": t.sampling_weight,
+                "inclusion_probability": t.inclusion_probability,
+                "sampling_signals": (
+                    t.sampling_signals.model_dump()
+                    if t.sampling_signals
+                    else None
+                ),
             }
             for t in investigation_trajectories
         ]

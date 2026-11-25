@@ -50,6 +50,7 @@ from ambient_quality_agent.tools.trajectories.bigquery_store import (
 from ambient_quality_agent.tools.trajectories.models import (
     IngestStatus,
     InvestigationTrajectory,
+    SamplingSignals,
     TrajectoryProcessingState,
 )
 from google.cloud import bigquery
@@ -77,6 +78,8 @@ _PYTHON_TYPE: dict[str, type] = {
     "STRING": str,
     "TIMESTAMP": str,
     "BOOL": bool,
+    "FLOAT": float,
+    "RECORD": dict,
 }
 
 _NOW = dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
@@ -162,6 +165,9 @@ def _written_row() -> tuple[dict[str, Any], bigquery.LoadJobConfig]:
                 source_session_id="session-1",
                 source_trace_ids=["trace-1", "trace-2"],
                 ingest_status=IngestStatus.PARTIAL,
+                sampling_weight=5.0,
+                inclusion_probability=0.25,
+                sampling_signals=SamplingSignals(has_error=True, cost_tail=0.5),
             )
         ]
     )
@@ -255,6 +261,20 @@ def test_the_model_and_the_schema_hold_the_same_columns() -> None:
         f"model only {sorted(fields - declared)}, "
         f"table only {sorted(declared - fields)}"
     )
+
+
+def test_the_sampling_signals_are_written_as_the_declared_record() -> None:
+    row, _ = _written_row()
+    declared = next(
+        column
+        for column in _declaration()["schema"]
+        if column["name"] == "sampling_signals"
+    )
+
+    assert set(row["sampling_signals"]) == {
+        field["name"] for field in declared["fields"]
+    }
+    assert set(SamplingSignals.model_fields) == set(row["sampling_signals"])
 
 
 def test_a_repeated_column_is_never_written_null() -> None:

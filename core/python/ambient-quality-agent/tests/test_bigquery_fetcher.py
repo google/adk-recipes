@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import datetime as dt
 import hashlib
 import json
@@ -39,6 +38,7 @@ from ambient_quality_agent.tools.ingestion.base import (
 from ambient_quality_agent.tools.ingestion.bigquery_fetcher import (
     BigQueryFetcher,
 )
+from ambient_quality_agent.tools.ingestion.models import IngestionCounts
 from ambient_quality_agent.tools.review.agentic_reviewer.prompts import (
     build_review_prompt,
 )
@@ -438,7 +438,7 @@ def test_map_page_logs_progress_once_for_small_page(
 def test_map_multi_turn_events() -> None:
     fetcher = _make_fetcher(mock.MagicMock())
 
-    cases, _ = fetcher._map_page([_multi_turn_row()], MetricType.MULTI_TURN)
+    cases, _, _ = fetcher._map_page([_multi_turn_row()], MetricType.MULTI_TURN)
 
     assert len(cases) == 1
     # The case is tagged with the source ``session_id`` so the summary
@@ -1090,7 +1090,9 @@ def test_map_multi_turn_with_sub_agents_row() -> None:
 def test_map_single_turn_structure() -> None:
     fetcher = _make_fetcher(mock.MagicMock())
 
-    cases, _ = fetcher._map_page([_single_turn_row()], MetricType.SINGLE_TURN)
+    cases, _, _ = fetcher._map_page(
+        [_single_turn_row()], MetricType.SINGLE_TURN
+    )
 
     assert len(cases) == 1
     case = cases[0]
@@ -1171,8 +1173,8 @@ def test_map_single_turn_includes_all_agents_events() -> None:
 def test_map_rows_empty_input() -> None:
     fetcher = _make_fetcher(mock.MagicMock())
 
-    assert fetcher._map_page([], MetricType.MULTI_TURN) == ([], {})
-    assert fetcher._map_page([], MetricType.SINGLE_TURN) == ([], {})
+    assert fetcher._map_page([], MetricType.MULTI_TURN) == ([], {}, {})
+    assert fetcher._map_page([], MetricType.SINGLE_TURN) == ([], {}, {})
 
 
 # --- counting and ingestion tallies -------------------------------------------
@@ -1347,7 +1349,7 @@ def test_map_page_counts_every_row_as_ingested() -> None:
         [_multi_turn_row(), _multi_turn_row()], MetricType.MULTI_TURN
     )
 
-    assert dataclasses.astuple(fetcher.counts) == (0, 2, 0, 0)
+    assert fetcher.counts == IngestionCounts(ingested=2)
 
 
 def test_map_page_does_not_count_the_rows_a_memory_stop_left_unread() -> None:
@@ -1358,7 +1360,7 @@ def test_map_page_does_not_count_the_rows_a_memory_stop_left_unread() -> None:
 
     fetcher._map_page([_multi_turn_row()], MetricType.MULTI_TURN)
 
-    assert dataclasses.astuple(fetcher.counts) == (0, 0, 0, 0)
+    assert fetcher.counts == IngestionCounts()
 
 
 def _llm_request(
@@ -2481,9 +2483,13 @@ def _targets_of(sql: str) -> str:
     Returns:
         Extracted targets CTE SQL fragment.
     """
-    return sql.split("WITH TargetSessions AS (\n", 1)[1].split(
-        "\n  ORDER BY RAND()", 1
-    )[0]
+    match = re.search(
+        r"WITH TargetSessions AS \(.*?FROM \((?P<targets>.*?)\)\s*ORDER BY RAND\(\)",
+        sql,
+        re.DOTALL,
+    )
+    assert match is not None
+    return match["targets"].strip()
 
 
 def _below_the_cte(sql: str) -> str:
@@ -2495,7 +2501,7 @@ def _below_the_cte(sql: str) -> str:
     Returns:
         SQL fragment following the target sampling clause.
     """
-    return sql.split("\n  ORDER BY RAND()", 1)[1]
+    return re.split(r"ORDER BY RAND\(\)", sql, maxsplit=1)[1]
 
 
 def test_a_run_without_a_selector_queries_exactly_what_it_queried_before() -> (
@@ -2506,7 +2512,7 @@ def test_a_run_without_a_selector_queries_exactly_what_it_queried_before() -> (
 
     assert (
         _targets_of(fetcher._build_ingestion_sql(MetricType.MULTI_TURN))
-        == _WINDOW_TARGETS
+        == _WINDOW_TARGETS.strip()
     )
     assert (
         fetcher._build_count_sql(MetricType.MULTI_TURN)
@@ -2560,8 +2566,9 @@ def test_the_selected_sessions_are_still_sampled_to_the_budget() -> None:
         mock.MagicMock(), selector_sql="SELECT s AS target_id"
     )
 
-    assert "ORDER BY RAND()\n  LIMIT @limit" in fetcher._build_ingestion_sql(
-        MetricType.MULTI_TURN
+    assert re.search(
+        r"ORDER BY RAND\(\)\s+LIMIT @limit",
+        fetcher._build_ingestion_sql(MetricType.MULTI_TURN),
     )
 
 
@@ -2573,8 +2580,12 @@ def test_the_count_and_the_sample_ask_about_the_selected_population() -> None:
 
     targets = _targets_of(fetcher._build_ingestion_sql(MetricType.MULTI_TURN))
 
-    assert fetcher._build_count_sql(MetricType.MULTI_TURN) == (
-        f"SELECT COUNT(*) AS scanned FROM ({targets})"  # noqa: S608 - trusted test constants
+    count = fetcher._build_count_sql(MetricType.MULTI_TURN)
+    assert (
+        count.split()
+        == (
+            f"SELECT COUNT(*) AS scanned FROM ({targets})"  # noqa: S608 - trusted test constants
+        ).split()
     )
 
 
@@ -2768,7 +2779,7 @@ def test_map_page_links_trajectory_files_in_the_recorded_and_returned_case(
     )
     _add_image_to_mapped_rows(fetcher, monkeypatch)
 
-    cases, _ = fetcher._map_page([_multi_turn_row()], MetricType.MULTI_TURN)
+    cases, _, _ = fetcher._map_page([_multi_turn_row()], MetricType.MULTI_TURN)
     fetcher._recorder.flush()
 
     name = (
@@ -2792,12 +2803,12 @@ def test_map_page_counts_a_failed_trajectory_file_write_as_partial(
     )
     _add_image_to_mapped_rows(fetcher, monkeypatch)
 
-    cases, _ = fetcher._map_page([_multi_turn_row()], MetricType.MULTI_TURN)
+    cases, _, _ = fetcher._map_page([_multi_turn_row()], MetricType.MULTI_TURN)
     fetcher._recorder.flush()
 
     part = _extract_image_part(cases[0])
     assert part.text.startswith("<attachment: image/png, 32 bytes, sha256:")
-    assert dataclasses.astuple(fetcher.counts) == (0, 0, 1, 0)
+    assert fetcher.counts == IngestionCounts(partial=1)
     assert recorder.records[0].ingest_status is IngestStatus.PARTIAL
 
 
@@ -2807,12 +2818,12 @@ def test_map_page_without_a_trajectory_file_store_writes_placeholders(
     fetcher = _make_fetcher(mock.MagicMock())
     _add_image_to_mapped_rows(fetcher, monkeypatch)
 
-    cases, _ = fetcher._map_page([_multi_turn_row()], MetricType.MULTI_TURN)
+    cases, _, _ = fetcher._map_page([_multi_turn_row()], MetricType.MULTI_TURN)
 
     part = _extract_image_part(cases[0])
     digest = hashlib.sha256(_IMAGE).hexdigest()[:8]
     assert part.text == f"<attachment: image/png, 32 bytes, sha256:{digest}>"
-    assert dataclasses.astuple(fetcher.counts) == (0, 1, 0, 0)
+    assert fetcher.counts == IngestionCounts(ingested=1)
 
 
 def test_map_page_logs_the_trajectory_file_counts_of_a_page_with_files(

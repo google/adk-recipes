@@ -38,7 +38,7 @@ import enum
 import json
 import logging
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import (
     AliasChoices,
@@ -146,6 +146,22 @@ IN_FLIGHT_STATUSES = frozenset(
 """Statuses of an investigation with active or queued work. Excludes
 ``SCHEDULED`` because nothing runs until its delayed trigger fires."""
 
+STALE_IN_FLIGHT_MINUTES = 30
+"""Minutes an in-flight investigation may go without stage progress before
+readers stop treating it as active. Kept in sync with ``STALE_AFTER_MS`` in
+``ui/web/lib/investigation-state.ts`` and ``STALE_AFTER_SECONDS`` in
+``tools/mock_aqa_server.py``."""
+
+SCHEDULED_INVESTIGATION_GRACE_MINUTES = 60
+"""Minutes past its due time a ``SCHEDULED`` investigation may wait for its
+delayed trigger.
+
+Cloud Tasks dispatches a task at its schedule time; only a dispatch that keeps
+failing is retried later than this. Past it, readers stop treating the record as
+ongoing and the next submission marks the trigger lost and fails the
+investigation so the record does not wait forever. A trigger that still fires
+afterward starts an investigation under an ID of its own."""
+
 MANUAL_TRIGGER_TYPE = "manual"
 """``trigger_type`` for an investigation requested by a user or the CLI."""
 
@@ -185,6 +201,27 @@ class CustomOverrides(BaseModel):
     """Focus guidance appended to the reviewer prompt. Stored in BigQuery under
     ``session_review_focus``."""
 
+    sampling: Literal["", "weighted", "uniform"] = ""
+    """How the investigation picks its trajectories; empty for the default of
+    `resolve_sampling`."""
+
+    def resolve_sampling(self, attached: str) -> str:
+        """Chooses how the investigation picks its trajectories.
+
+        A selector names the slice the user chose, so without an explicit
+        choice its matches are sampled uniformly. Otherwise the attachment's
+        setting applies.
+
+        Args:
+            attached: The attachment's `Config.data_sampling`.
+
+        Returns:
+            ``weighted`` or ``uniform``.
+        """
+        if self.sampling:
+            return self.sampling
+        return "uniform" if self.selector_sql else attached
+
     def is_custom(self) -> bool:
         """Checks whether any custom override is set.
 
@@ -206,10 +243,23 @@ class InvestigationCounters(BaseModel):
     for ``MULTI_TURN``, an invocation trace for ``SINGLE_TURN``), summed across
     both scopes when both run.
 
-    In BigQuery, the ``trajectories_*`` fields are stored under ``traces_*``
-    keys, and ``findings_errored`` and ``findings_unclustered`` under
-    ``rubrics_errored`` and ``rubrics_unclustered``; `counter_to_key` returns
-    each field's stored key.
+    The ``estimated_*`` counters estimate a sample counter for all traffic in
+    the window: each trajectory counts as ``1 / p`` trajectories, where ``p``
+    is its probability of being picked (see
+    `ambient_quality_agent.tools.ingestion.sampling`), scaled so that the
+    evaluated trajectories stand for every candidate
+    (`_sweep.compute_trajectories_represented`), and rounded to whole
+    trajectories. A rate for all traffic divides one estimate by another.
+    Estimates describe one unit, so an investigation that reviews both
+    sessions and single turns records none, and neither does one that
+    evaluated a trajectory without ``p``; its sample counters then stand for
+    its figures (`has_estimates`).
+
+    In BigQuery, the ``trajectories_scanned``, ``trajectories_ingested*``,
+    ``trajectories_evaluated`` and ``trajectories_eval_*`` fields are stored
+    under ``traces_*`` keys, and ``findings_errored`` and
+    ``findings_unclustered`` under ``rubrics_errored`` and
+    ``rubrics_unclustered``; `counter_to_key` returns each field's stored key.
     """
 
     trajectories_scanned: int = Field(
@@ -289,6 +339,18 @@ class InvestigationCounters(BaseModel):
     trajectory that produced neither verdicts nor a score is not counted in
     passed, failed, or errored."""
 
+    estimated_trajectories_eval_passed: int = 0
+    """Estimated trajectories of all traffic that `trajectories_eval_passed`
+    stands for."""
+
+    estimated_trajectories_eval_failed: int = 0
+    """Estimated trajectories of all traffic that `trajectories_eval_failed`
+    stands for."""
+
+    trajectories_evaluated_with_risk_signals: int = 0
+    """Evaluated trajectories that weighted sampling picked with a weight above
+    1, that is with at least one risk signal."""
+
     rubrics_generated: int = 0
     """Total rubric verdicts produced across all ``(trajectory, metric)``
     evaluations, both passed and failed."""
@@ -345,6 +407,20 @@ class InvestigationCounters(BaseModel):
     pass) that matched an existing insight and marked it recurring. Unjudged
     candidates that match an insight update its timestamp without counting as
     recurrences."""
+
+    @property
+    def has_estimates(self) -> bool:
+        """Whether the investigation recorded estimates for all traffic.
+
+        False for an investigation that evaluated nothing, that evaluated a
+        trajectory without a probability, or that reviewed both sessions and
+        single turns.
+        """
+        return (
+            self.estimated_trajectories_eval_passed
+            + self.estimated_trajectories_eval_failed
+            > 0
+        )
 
 
 def list_counter_names() -> tuple[str, ...]:

@@ -1,0 +1,541 @@
+--- a/__init__.py
++++ b/__init__.py
+@@ -1,29 +1,69 @@
++# SPDX-License-Identifier: Apache-2.0
++#
++# Copied from Harbor (https://github.com/harbor-framework/harbor), release
++# v0.25.0, file src/harbor/models/trajectories/__init__.py. Copyright the Harbor
++# authors, licensed under the Apache License, Version 2.0; see LICENSE in this
++# directory. Modified for AQuA: imports point at `aqua_atif.models`, and each
++# other change is marked with an "AQuA change" comment (see `__init__.py`).
++
+ """Pydantic models for Agent Trajectory Interchange Format (ATIF).
+ 
+ This module provides Pydantic models for validating and constructing
+ trajectory data following the ATIF specification (RFC 0001).
++
++AQuA changes to Harbor's v0.25.0 models, each marked "AQuA change N" in the
++code:
++
++1. The 12 model configs allow unknown fields instead of forbidding them.
++2. `Trajectory.schema_version` is a string; `aqua_atif.validation` checks its
++   range.
++3. `aqua_atif.validation` walks the validated document and lists every unknown
++   field with its path (no edit to these files).
++4. A content part of an unknown type is kept: `ContentPart.type` and the media
++   type fields take any string, the source model is chosen from the part's
++   type, and the media part validator skips unknown types. A step `source`
++   other than `system`, `user` or `agent` stays invalid.
++5. A subagent reference with neither `trajectory_id` nor `trajectory_path` is
++   kept, and `aqua_atif.markers.find_missing_markers` marks it.
++
++Besides these, the copy differs from Harbor only in the file headers, the
++imports, which point at `aqua_atif.models` and are sorted by ruff, ruff's line
++wrapping, and one `noqa`. `tests/fixtures/atif/harbor_v0.25.0_models.diff`
++holds the whole difference, and `tests/test_aqua_atif_models.py` checks that
++reversing it gives Harbor's files byte for byte. To vendor a newer release:
++
++1. Copy its `src/harbor/models/trajectories/*.py` here.
++2. Apply the diff with `patch -p1 -d src/aqua_atif/models`, and resolve what
++   no longer applies.
++3. Run `ruff check --fix` and `ruff format` on the copy.
++4. Regenerate the diff with `diff -u --label a/<file> --label b/<file>`, update
++   the release and the upstream hashes in the test, and run it.
+ """
+ 
+-from harbor.models.trajectories.agent import Agent
+-from harbor.models.trajectories.content import (
++from aqua_atif.models.agent import Agent
++from aqua_atif.models.content import (
++    AudioMediaType,
+     AudioSource,
+     ContentPart,
++    ImageMediaType,
+     ImageSource,
+ )
+-from harbor.models.trajectories.final_metrics import FinalMetrics
+-from harbor.models.trajectories.metrics import Metrics
+-from harbor.models.trajectories.observation import Observation
+-from harbor.models.trajectories.observation_result import ObservationResult
+-from harbor.models.trajectories.step import Step
+-from harbor.models.trajectories.subagent_trajectory_ref import SubagentTrajectoryRef
+-from harbor.models.trajectories.tool_call import ToolCall
+-from harbor.models.trajectories.trajectory import Trajectory
++from aqua_atif.models.final_metrics import FinalMetrics
++from aqua_atif.models.metrics import Metrics
++from aqua_atif.models.observation import Observation
++from aqua_atif.models.observation_result import ObservationResult
++from aqua_atif.models.step import Step
++from aqua_atif.models.subagent_trajectory_ref import SubagentTrajectoryRef
++from aqua_atif.models.tool_call import ToolCall
++from aqua_atif.models.trajectory import Trajectory
+ 
+ __all__ = [
+     "Agent",
++    "AudioMediaType",
+     "AudioSource",
+     "ContentPart",
+     "FinalMetrics",
++    "ImageMediaType",
+     "ImageSource",
+     "Metrics",
+     "Observation",
+--- a/agent.py
++++ b/agent.py
+@@ -1,3 +1,11 @@
++# SPDX-License-Identifier: Apache-2.0
++#
++# Copied from Harbor (https://github.com/harbor-framework/harbor), release
++# v0.25.0, file src/harbor/models/trajectories/agent.py. Copyright the Harbor
++# authors, licensed under the Apache License, Version 2.0; see LICENSE in this
++# directory. Modified for AQuA: imports point at `aqua_atif.models`, and each
++# other change is marked with an "AQuA change" comment (see `__init__.py`).
++
+ """Agent configuration model for ATIF trajectories."""
+ 
+ from typing import Any
+@@ -29,4 +37,5 @@
+         description="Custom agent configuration details",
+     )
+ 
+-    model_config = {"extra": "forbid"}
++    # AQuA change 1: unknown fields are kept; `aqua_atif.validation` lists them.
++    model_config = {"extra": "allow"}
+--- a/content.py
++++ b/content.py
+@@ -1,3 +1,11 @@
++# SPDX-License-Identifier: Apache-2.0
++#
++# Copied from Harbor (https://github.com/harbor-framework/harbor), release
++# v0.25.0, file src/harbor/models/trajectories/content.py. Copyright the Harbor
++# authors, licensed under the Apache License, Version 2.0; see LICENSE in this
++# directory. Modified for AQuA: imports point at `aqua_atif.models`, and each
++# other change is marked with an "AQuA change" comment (see `__init__.py`).
++
+ """Content models for multimodal ATIF trajectories.
+ 
+ Added in ATIF-v1.6 to support multimodal content (images) in trajectories.
+@@ -6,7 +14,13 @@
+ 
+ from typing import Any, Literal
+ 
+-from pydantic import BaseModel, Field, field_validator, model_validator
++from pydantic import (
++    BaseModel,
++    Field,
++    ValidationInfo,
++    field_validator,
++    model_validator,
++)
+ 
+ # Canonical audio MIME types, chosen to cover what multimodal and transcription
+ # APIs actually accept: Gemini audio understanding (wav, mp3, aiff, aac, ogg,
+@@ -44,10 +58,16 @@
+ }
+ 
+ 
++# AQuA change 4: the image media types that ATIF defines. The fields below take
++# any string, and `aqua_atif.validation` checks them against these lists.
++ImageMediaType = Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
++
++
+ class ImageSource(BaseModel):
+     """Image source specification for images stored as files or at remote URLs."""
+ 
+-    media_type: Literal["image/jpeg", "image/png", "image/gif", "image/webp"] = Field(
++    # AQuA change 4: any string.
++    media_type: str = Field(
+         default=...,
+         description="MIME type of the image",
+     )
+@@ -58,7 +78,8 @@
+         ),
+     )
+ 
+-    model_config = {"extra": "forbid"}
++    # AQuA change 1: unknown fields are kept; `aqua_atif.validation` lists them.
++    model_config = {"extra": "allow"}
+ 
+ 
+ class AudioSource(BaseModel):
+@@ -71,7 +92,8 @@
+     recovered without decoding the file.
+     """
+ 
+-    media_type: AudioMediaType = Field(
++    # AQuA change 4: any string.
++    media_type: str = Field(
+         default=...,
+         description="MIME type of the audio",
+     )
+@@ -90,7 +112,8 @@
+         ),
+     )
+ 
+-    model_config = {"extra": "forbid"}
++    # AQuA change 1: unknown fields are kept; `aqua_atif.validation` lists them.
++    model_config = {"extra": "allow"}
+ 
+     @field_validator("media_type", mode="before")
+     @classmethod
+@@ -110,7 +133,8 @@
+     instead of a ContentPart array.
+     """
+ 
+-    type: Literal["text", "image", "audio"] = Field(
++    # AQuA change 4: any string, so a part type from a newer version is kept.
++    type: str = Field(
+         default=...,
+         description="The type of content",
+     )
+@@ -118,7 +142,8 @@
+         default=None,
+         description="Text content. Required when type='text'.",
+     )
+-    source: ImageSource | AudioSource | None = Field(
++    # AQuA change 4: a part of an unknown type keeps its source as written.
++    source: ImageSource | AudioSource | dict[str, Any] | None = Field(
+         default=None,
+         description=(
+             "Media source (file reference). Required when type='image' or "
+@@ -126,7 +151,25 @@
+         ),
+     )
+ 
+-    model_config = {"extra": "forbid"}
++    # AQuA change 1: unknown fields are kept; `aqua_atif.validation` lists them.
++    model_config = {"extra": "allow"}
++
++    @field_validator("source", mode="before")
++    @classmethod
++    def select_source_model(cls, value: Any, info: ValidationInfo) -> Any:
++        """AQuA change 4: choose the source model from the part's type.
++
++        With open media type lists, an image source and an audio source have the
++        same shape, so the union cannot tell them apart by content. Validating
++        here, not on the whole part, keeps `source` in error locations.
++        """
++        if not isinstance(value, dict):
++            return value
++        if info.data.get("type") == "image":
++            return ImageSource.model_validate(value)
++        if info.data.get("type") == "audio":
++            return AudioSource.model_validate(value)
++        return value
+ 
+     @model_validator(mode="after")
+     def validate_content_type(self) -> "ContentPart":
+@@ -135,7 +178,12 @@
+             if self.text is None:
+                 raise ValueError("'text' field is required when type='text'")
+             if self.source is not None:
+-                raise ValueError("'source' field is not allowed when type='text'")
++                raise ValueError(
++                    "'source' field is not allowed when type='text'"
++                )
++            return self
++        # AQuA change 4: a part of an unknown type is kept as written.
++        if self.type not in ("image", "audio"):
+             return self
+ 
+         # Media parts: a source is required, text is not allowed, and the source
+@@ -143,14 +191,19 @@
+         # `source` union would happily accept an ImageSource under
+         # type='audio' (and vice versa), silently mislabelling the content.
+         if self.source is None:
+-            raise ValueError(f"'source' field is required when type='{self.type}'")
++            raise ValueError(
++                f"'source' field is required when type='{self.type}'"
++            )
+         if self.text is not None:
+-            raise ValueError(f"'text' field is not allowed when type='{self.type}'")
++            raise ValueError(
++                f"'text' field is not allowed when type='{self.type}'"
++            )
+ 
+         expected = ImageSource if self.type == "image" else AudioSource
+         if not isinstance(self.source, expected):
+             raise ValueError(
+                 f"type='{self.type}' requires a {expected.__name__}, but the "
+-                f"source's media_type is {self.source.media_type!r}"
++                # AQuA change 4: a source of an unknown part type is a dict.
++                f"source's media_type is {getattr(self.source, 'media_type', None)!r}"
+             )
+         return self
+--- a/final_metrics.py
++++ b/final_metrics.py
+@@ -1,3 +1,11 @@
++# SPDX-License-Identifier: Apache-2.0
++#
++# Copied from Harbor (https://github.com/harbor-framework/harbor), release
++# v0.25.0, file src/harbor/models/trajectories/final_metrics.py. Copyright the Harbor
++# authors, licensed under the Apache License, Version 2.0; see LICENSE in this
++# directory. Modified for AQuA: imports point at `aqua_atif.models`, and each
++# other change is marked with an "AQuA change" comment (see `__init__.py`).
++
+ """Final metrics model for ATIF trajectories."""
+ 
+ from typing import Any
+@@ -37,4 +45,5 @@
+         description="Custom aggregate metrics",
+     )
+ 
+-    model_config = {"extra": "forbid"}
++    # AQuA change 1: unknown fields are kept; `aqua_atif.validation` lists them.
++    model_config = {"extra": "allow"}
+--- a/metrics.py
++++ b/metrics.py
+@@ -1,3 +1,11 @@
++# SPDX-License-Identifier: Apache-2.0
++#
++# Copied from Harbor (https://github.com/harbor-framework/harbor), release
++# v0.25.0, file src/harbor/models/trajectories/metrics.py. Copyright the Harbor
++# authors, licensed under the Apache License, Version 2.0; see LICENSE in this
++# directory. Modified for AQuA: imports point at `aqua_atif.models`, and each
++# other change is marked with an "AQuA change" comment (see `__init__.py`).
++
+ """Metrics model for ATIF trajectories."""
+ 
+ from typing import Any
+@@ -41,4 +49,5 @@
+         description="Other metrics",
+     )
+ 
+-    model_config = {"extra": "forbid"}
++    # AQuA change 1: unknown fields are kept; `aqua_atif.validation` lists them.
++    model_config = {"extra": "allow"}
+--- a/observation.py
++++ b/observation.py
+@@ -1,9 +1,16 @@
++# SPDX-License-Identifier: Apache-2.0
++#
++# Copied from Harbor (https://github.com/harbor-framework/harbor), release
++# v0.25.0, file src/harbor/models/trajectories/observation.py. Copyright the Harbor
++# authors, licensed under the Apache License, Version 2.0; see LICENSE in this
++# directory. Modified for AQuA: imports point at `aqua_atif.models`, and each
++# other change is marked with an "AQuA change" comment (see `__init__.py`).
++
+ """Observation model for ATIF trajectories."""
+ 
++from aqua_atif.models.observation_result import ObservationResult
+ from pydantic import BaseModel, Field
+ 
+-from harbor.models.trajectories.observation_result import ObservationResult
+-
+ 
+ class Observation(BaseModel):
+     """Environment feedback/result after actions or system events."""
+@@ -13,4 +20,5 @@
+         description="Array of result objects from tool calls or actions",
+     )
+ 
+-    model_config = {"extra": "forbid"}
++    # AQuA change 1: unknown fields are kept; `aqua_atif.validation` lists them.
++    model_config = {"extra": "allow"}
+--- a/observation_result.py
++++ b/observation_result.py
+@@ -1,12 +1,19 @@
++# SPDX-License-Identifier: Apache-2.0
++#
++# Copied from Harbor (https://github.com/harbor-framework/harbor), release
++# v0.25.0, file src/harbor/models/trajectories/observation_result.py. Copyright the Harbor
++# authors, licensed under the Apache License, Version 2.0; see LICENSE in this
++# directory. Modified for AQuA: imports point at `aqua_atif.models`, and each
++# other change is marked with an "AQuA change" comment (see `__init__.py`).
++
+ """Observation result model for ATIF trajectories."""
+ 
+ from typing import Any
+ 
++from aqua_atif.models.content import ContentPart
++from aqua_atif.models.subagent_trajectory_ref import SubagentTrajectoryRef
+ from pydantic import BaseModel, Field
+ 
+-from harbor.models.trajectories.content import ContentPart
+-from harbor.models.trajectories.subagent_trajectory_ref import SubagentTrajectoryRef
+-
+ 
+ class ObservationResult(BaseModel):
+     """A single result within an observation."""
+@@ -39,4 +46,5 @@
+         ),
+     )
+ 
+-    model_config = {"extra": "forbid"}
++    # AQuA change 1: unknown fields are kept; `aqua_atif.validation` lists them.
++    model_config = {"extra": "allow"}
+--- a/step.py
++++ b/step.py
+@@ -1,15 +1,22 @@
++# SPDX-License-Identifier: Apache-2.0
++#
++# Copied from Harbor (https://github.com/harbor-framework/harbor), release
++# v0.25.0, file src/harbor/models/trajectories/step.py. Copyright the Harbor
++# authors, licensed under the Apache License, Version 2.0; see LICENSE in this
++# directory. Modified for AQuA: imports point at `aqua_atif.models`, and each
++# other change is marked with an "AQuA change" comment (see `__init__.py`).
++
+ """Step model for ATIF trajectories."""
+ 
+ from datetime import datetime
+ from typing import Any, Literal
+ 
++from aqua_atif.models.content import ContentPart
++from aqua_atif.models.metrics import Metrics
++from aqua_atif.models.observation import Observation
++from aqua_atif.models.tool_call import ToolCall
+ from pydantic import BaseModel, Field, field_validator, model_validator
+ 
+-from harbor.models.trajectories.content import ContentPart
+-from harbor.models.trajectories.metrics import Metrics
+-from harbor.models.trajectories.observation import Observation
+-from harbor.models.trajectories.tool_call import ToolCall
+-
+ 
+ class Step(BaseModel):
+     """A single step in the trajectory."""
+@@ -88,7 +95,8 @@
+         description="Custom step-level metadata",
+     )
+ 
+-    model_config = {"extra": "forbid"}
++    # AQuA change 1: unknown fields are kept; `aqua_atif.validation` lists them.
++    model_config = {"extra": "allow"}
+ 
+     @field_validator("timestamp")
+     @classmethod
+@@ -98,7 +106,7 @@
+             try:
+                 datetime.fromisoformat(v.replace("Z", "+00:00"))
+             except ValueError as e:
+-                raise ValueError(f"Invalid ISO 8601 timestamp: {e}")
++                raise ValueError(f"Invalid ISO 8601 timestamp: {e}")  # noqa: B904 - kept as vendored
+         return v
+ 
+     @model_validator(mode="after")
+--- a/subagent_trajectory_ref.py
++++ b/subagent_trajectory_ref.py
+@@ -1,8 +1,16 @@
++# SPDX-License-Identifier: Apache-2.0
++#
++# Copied from Harbor (https://github.com/harbor-framework/harbor), release
++# v0.25.0, file src/harbor/models/trajectories/subagent_trajectory_ref.py. Copyright the Harbor
++# authors, licensed under the Apache License, Version 2.0; see LICENSE in this
++# directory. Modified for AQuA: imports point at `aqua_atif.models`, and each
++# other change is marked with an "AQuA change" comment (see `__init__.py`).
++
+ """Subagent trajectory reference model for ATIF trajectories."""
+ 
+ from typing import Any
+ 
+-from pydantic import BaseModel, Field, model_validator
++from pydantic import BaseModel, Field
+ 
+ 
+ class SubagentTrajectoryRef(BaseModel):
+@@ -63,23 +71,10 @@
+         description="Custom metadata about the subagent execution",
+     )
+ 
+-    model_config = {"extra": "forbid"}
++    # AQuA change 1: unknown fields are kept; `aqua_atif.validation` lists them.
++    model_config = {"extra": "allow"}
+ 
+-    @model_validator(mode="after")
+-    def validate_is_resolvable(self) -> "SubagentTrajectoryRef":
+-        """A ref must be resolvable: set `trajectory_id` or `trajectory_path`.
+-
+-        `session_id` alone is not sufficient because it is run-scoped and
+-        MAY collide across siblings (see `Trajectory.session_id`), so it
+-        cannot unambiguously identify which subagent trajectory a ref
+-        points at.
+-        """
+-        if self.trajectory_id is None and self.trajectory_path is None:
+-            raise ValueError(
+-                "SubagentTrajectoryRef must be resolvable: set either "
+-                "`trajectory_id` (for embedded references) or "
+-                "`trajectory_path` (for external-file references). "
+-                "`session_id` alone is not a resolution key — it is "
+-                "run-scoped and may collide across siblings."
+-            )
+-        return self
++    # AQuA change 5: a reference with neither `trajectory_id` nor
++    # `trajectory_path`, valid in ATIF-v1.6, is kept; it never resolves, so
++    # `aqua_atif.markers.find_missing_markers` gives it a `trajectory` marker
++    # instead of the document being rejected.
+--- a/tool_call.py
++++ b/tool_call.py
+@@ -1,3 +1,11 @@
++# SPDX-License-Identifier: Apache-2.0
++#
++# Copied from Harbor (https://github.com/harbor-framework/harbor), release
++# v0.25.0, file src/harbor/models/trajectories/tool_call.py. Copyright the Harbor
++# authors, licensed under the Apache License, Version 2.0; see LICENSE in this
++# directory. Modified for AQuA: imports point at `aqua_atif.models`, and each
++# other change is marked with an "AQuA change" comment (see `__init__.py`).
++
+ """Tool call model for ATIF trajectories."""
+ 
+ from typing import Any
+@@ -28,4 +36,5 @@
+         ),
+     )
+ 
+-    model_config = {"extra": "forbid"}
++    # AQuA change 1: unknown fields are kept; `aqua_atif.validation` lists them.
++    model_config = {"extra": "allow"}
+--- a/trajectory.py
++++ b/trajectory.py
+@@ -1,28 +1,26 @@
++# SPDX-License-Identifier: Apache-2.0
++#
++# Copied from Harbor (https://github.com/harbor-framework/harbor), release
++# v0.25.0, file src/harbor/models/trajectories/trajectory.py. Copyright the Harbor
++# authors, licensed under the Apache License, Version 2.0; see LICENSE in this
++# directory. Modified for AQuA: imports point at `aqua_atif.models`, and each
++# other change is marked with an "AQuA change" comment (see `__init__.py`).
++
+ """Trajectory model for ATIF (Agent Trajectory Interchange Format)."""
+ 
+-from typing import Any, Literal
++from typing import Any
+ 
++from aqua_atif.models.agent import Agent
++from aqua_atif.models.final_metrics import FinalMetrics
++from aqua_atif.models.step import Step
+ from pydantic import BaseModel, Field, model_validator
+ 
+-from harbor.models.trajectories.agent import Agent
+-from harbor.models.trajectories.final_metrics import FinalMetrics
+-from harbor.models.trajectories.step import Step
+-
+ 
+ class Trajectory(BaseModel):
+     """Agent Trajectory in ATIF (Agent Trajectory Interchange Format)."""
+ 
+-    schema_version: Literal[
+-        "ATIF-v1.0",
+-        "ATIF-v1.1",
+-        "ATIF-v1.2",
+-        "ATIF-v1.3",
+-        "ATIF-v1.4",
+-        "ATIF-v1.5",
+-        "ATIF-v1.6",
+-        "ATIF-v1.7",
+-        "ATIF-v1.8",
+-    ] = Field(
++    # AQuA change 2: any string; `aqua_atif.validation` checks the range.
++    schema_version: str = Field(
+         default="ATIF-v1.8",
+         description="String defining ATIF compatibility",
+     )
+@@ -104,7 +102,8 @@
+         ),
+     )
+ 
+-    model_config = {"extra": "forbid"}
++    # AQuA change 1: unknown fields are kept; `aqua_atif.validation` lists them.
++    model_config = {"extra": "allow"}
+ 
+     def to_json_dict(self, exclude_none: bool = True) -> dict[str, Any]:
+         """Export trajectory to a dictionary suitable for JSON serialization.

@@ -18,6 +18,7 @@ import { AlertCircle, ExternalLink } from "lucide-react";
 import { trajectoryBundleQuery, type TrajectoryBundle } from "@/lib/aqua-api";
 import { TrajectoryBackLink } from "@/components/investigations/trajectory-back-link";
 import { conversationToTrajectoryDoc } from "@/lib/trajectory/conversationToTrajectoryDoc";
+import { PickedFor } from "@/components/trajectory/picked-for";
 import { Trajectory } from "@/components/trajectory/trajectory";
 import { ConversationView } from "@/components/conversation/conversation-view";
 import { PageShell } from "@/components/nav/page-shell";
@@ -99,6 +100,12 @@ export const Route = createFileRoute(
                 <ExternalLink className="h-3 w-3" /> Open in Cloud Trace
               </a>
             )}
+            <PickedFor
+              signals={data?.trajectory_bundle?.trajectory?.sampling_signals}
+              probability={
+                data?.trajectory_bundle?.trajectory?.inclusion_probability
+              }
+            />
           </PageHeader>
 
           {isLoading && <Loading className="p-4" label="Loading trajectory…" />}

@@ -19,7 +19,9 @@
     { "name": "analyses", "type": "JSON", "mode": "NULLABLE",
       "description": "Analysis-method name to that method's result, appended alongside the occurrence rather than folded into it. Absent when no analysis ran." },
     { "name": "rubrics", "type": "JSON", "mode": "NULLABLE",
-      "description": "Failed rubrics and traces, for the RCA harness." }
+      "description": "Failed rubrics and traces, for the RCA harness." },
+    { "name": "estimated_trajectory_count", "type": "FLOAT", "mode": "NULLABLE",
+      "description": "Conversations of all traffic in the sweep's window that trajectory_ids stand for: the sum of 1 / inclusion_probability over them, scaled as the investigation's estimated counters are. Null when a probability is unknown, and on rows written before this column." }
   ],
   "clustering": ["insight_id"]
 }

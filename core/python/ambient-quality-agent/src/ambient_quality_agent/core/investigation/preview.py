@@ -42,11 +42,12 @@ estimate matched conversation counts and store sample trajectory bundles for
 inspection without executing a full investigation sweep.
 
 Key design constraints:
-- **Sample vs. Examples**: Ingestion queries order by ``RAND()``, so preview and
-  full investigations draw independent random samples. Previewed conversations
-  illustrate matching criteria rather than the exact set evaluated during a full
-  investigation, unless the total matches fit within `EXAMPLE_COUNT` and the
-  full investigation budget.
+- **Sample vs. Examples**: A preview samples its examples by the rule the
+  investigation will sample by (`CustomOverrides.resolve_sampling`), with a
+  fresh random seed, so preview and full investigations draw independent
+  samples. Previewed conversations illustrate matching criteria rather than the
+  exact set evaluated during a full investigation, unless the total matches fit
+  within `EXAMPLE_COUNT` and the full investigation budget.
 - **Bundles Only**: Stores trajectory bundles without creating
   `InvestigationTrajectory` records, ensuring previews do not populate
   investigation metrics or outcome dashboards.
@@ -74,6 +75,7 @@ from ambient_quality_agent.core.session_state import DetachedContext
 from ambient_quality_agent.core.state import WorkflowState
 from ambient_quality_agent.tools.evaluation.models import MetricType
 from ambient_quality_agent.tools.ingestion import selector
+from ambient_quality_agent.tools.investigations.models import CustomOverrides
 from ambient_quality_agent.tools.observed_agent_config import effective_config
 from ambient_quality_agent.tools.trajectories.bundles import build_bundle
 from ambient_quality_agent.tools.trajectories.models import IngestStatus
@@ -91,6 +93,7 @@ if TYPE_CHECKING:
     from ambient_quality_agent.config import Config
     from ambient_quality_agent.core.session_state import LaunchContext
     from ambient_quality_agent.tools.ingestion.base import BaseFetcher
+    from ambient_quality_agent.tools.ingestion.models import SamplingRecord
     from ambient_quality_agent.tools.trajectories.bundles import (
         TrajectoryBundle,
     )
@@ -274,6 +277,7 @@ async def preview_selector(
     selector_sql: str,
     window_start: str = "",
     window_end: str = "",
+    sampling: str = "",
 ) -> SelectorPreview:
     """Validate, sample, store, and describe matching conversations for a selector.
 
@@ -288,6 +292,8 @@ async def preview_selector(
         window_start: Optional ISO-8601 start timestamp with UTC offset. When
             omitted along with `window_end`, defaults to the configured lookback.
         window_end: Optional ISO-8601 end timestamp with UTC offset.
+        sampling: How the investigation would pick its conversations
+            (`CustomOverrides.sampling`); empty for its default.
 
     Returns:
         A `SelectorPreview` instance containing validation status, counts, and
@@ -301,7 +307,7 @@ async def preview_selector(
         ValueError: If the quality analysis mode is not ``session_review``, the
             selector SQL is empty, or only one window boundary is provided.
     """
-    config = _load_selector_config(context, selector_sql)
+    config = _load_selector_config(context, selector_sql, sampling)
     # Perform static lexical validation before executing BigQuery dry runs.
     violation = selector.find_lexical_violation(selector_sql)
     if violation is not None:
@@ -334,6 +340,7 @@ async def validate_selector(
     window_start: str = "",
     window_end: str = "",
     surface: str = START_SURFACE,
+    sampling: str = "",
 ) -> selector.PrecheckResult:
     """Validate whether a selector is permitted to run without querying conversations.
 
@@ -349,6 +356,8 @@ async def validate_selector(
         window_end: Optional ISO-8601 end timestamp with UTC offset.
         surface: Which caller the logged outcome is attributed to,
             `START_SURFACE` or `PREVIEW_SURFACE`.
+        sampling: How the investigation would pick its conversations, which
+            decides the query the dry run checks; empty for its default.
 
     Returns:
         A `selector.PrecheckResult` whose `rejection` is None when the selector
@@ -359,7 +368,7 @@ async def validate_selector(
         ValueError: If the quality analysis mode is not ``session_review``, the
             selector SQL is empty, or only one window boundary is provided.
     """
-    config = _load_selector_config(context, selector_sql)
+    config = _load_selector_config(context, selector_sql, sampling)
     violation = selector.find_lexical_violation(selector_sql)
     if violation is not None:
         _log_validation_outcome(config, surface, violation, estimated_bytes=0)
@@ -399,19 +408,24 @@ def _precheck_on_this_thread(
     )
 
 
-def _load_selector_config(context: LaunchContext, selector_sql: str) -> Config:
+def _load_selector_config(
+    context: LaunchContext, selector_sql: str, sampling: str = ""
+) -> Config:
     """Resolve the effective config for a selector request and reject caller mistakes.
 
     Args:
         context: Launch context supplying configuration overrides.
         selector_sql: Unwrapped agent-authored SQL selector query.
+        sampling: The investigation's `CustomOverrides.sampling`.
 
     Returns:
-        The effective `Config`.
+        The effective `Config`, whose `data_sampling` is how an investigation
+        of `selector_sql` would pick its conversations.
 
     Raises:
         ValueError: If no agent is attached, the quality analysis mode is not
-            ``session_review``, or the selector SQL is empty.
+            ``session_review``, the selector SQL is empty, or `sampling` is
+            not a sampling method.
     """
     config = effective_config.load(context.state)
     if not config.observed_agent_name:
@@ -423,7 +437,12 @@ def _load_selector_config(context: LaunchContext, selector_sql: str) -> Config:
         )
     if not selector_sql.strip():
         raise ValueError("Cannot preview an empty selector.")
-    return config
+    overrides = CustomOverrides.model_validate(
+        {"selector_sql": selector_sql, "sampling": sampling}
+    )
+    return dataclasses.replace(
+        config, data_sampling=overrides.resolve_sampling(config.data_sampling)
+    )
 
 
 def _log_validation_outcome(
@@ -596,6 +615,7 @@ class _BundleCollector(NullTrajectoryRecorder):
         status: IngestStatus,
         case: EvalCase | None = None,
         agent_revision: str = "",
+        sampling: SamplingRecord | None = None,
     ) -> None:
         """Record an ingested trajectory bundle in memory.
 
@@ -607,8 +627,11 @@ class _BundleCollector(NullTrajectoryRecorder):
             status: Ingestion status of the conversation.
             case: Assembled evaluation case, or None if ingestion failed.
             agent_revision: Observed revision of the target agent.
+            sampling: How the conversation was picked (unused; investigation
+                trajectories are not recorded).
         """
-        del session_id  # Unused: preview records no investigation trajectories.
+        # Unused: preview records no investigation trajectories.
+        del session_id, sampling
         if case is None:
             return
         self.sightings.append(

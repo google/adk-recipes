@@ -77,6 +77,7 @@ from ambient_quality_agent.core.session_state import (
 from ambient_quality_agent.tools.investigations.models import (
     CUSTOM_TRIGGER_TYPE,
     MANUAL_TRIGGER_TYPE,
+    SCHEDULED_INVESTIGATION_GRACE_MINUTES,
     CustomOverrides,
 )
 from ambient_quality_agent.tools.observed_agent_config import effective_config
@@ -108,16 +109,6 @@ Acts as a best-effort throttle against queue buildup rather than a strict
 concurrency guarantee. Because active investigation counts are checked without
 distributed locks prior to inserting records, concurrent scheduling requests may
 briefly exceed this threshold.
-"""
-
-SCHEDULED_INVESTIGATION_GRACE_MINUTES = 60
-"""Minutes past its due time a `SCHEDULED` investigation may wait for its delayed trigger.
-
-Cloud Tasks dispatches a task at its schedule time; only a dispatch that keeps
-failing is retried later than this. Past it, the next submission treats the
-trigger as lost (its task deleted or never dispatched) and fails the investigation, so the
-record does not wait forever. A trigger that still fires after that starts an investigation
-under an ID of its own.
 """
 
 # `RUN_KEYWORD` (defined in `core.protocol`) prefixes the self-query message that

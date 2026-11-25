@@ -191,6 +191,29 @@ def test_an_ambient_sweep_seeds_the_overrides_empty(
     assert state["session_review_focus"] == ""
 
 
+def test_an_ambient_sweep_samples_as_its_attachment_says(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert _seeded_state(monkeypatch)["data_sampling"] == "weighted"
+    assert (
+        _seeded_state(monkeypatch, _config(data_sampling="uniform"))[
+            "data_sampling"
+        ]
+        == "uniform"
+    )
+
+
+def test_a_custom_selector_samples_its_matches_uniformly_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The selector chose the slice; weighting it is the user's call."""
+    state = _seeded_state(
+        monkeypatch, custom_overrides=_OVERRIDES, trigger_type="custom"
+    )
+
+    assert state["data_sampling"] == "uniform"
+
+
 _STORED_SELECTOR = (
     "SELECT session_id AS target_id FROM d.t "
     "WHERE ts BETWEEN @window_start AND @window_end AND agent = @agent_name"
@@ -391,6 +414,41 @@ def test_run_investigation_threads_run_id_to_terminal_state(
 
     assert result["status"] == "done"
     assert seen["investigation_id"] == "sweep-123"
+
+
+def test_a_retry_after_a_crash_draws_a_new_sample(
+    patched_factories: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A trajectory that crashed the job would be drawn again under the same
+    seed."""
+    seen: dict[str, Any] = {}
+    original = execute._summarize
+
+    def record_seed(state: dict[str, Any], config: Any) -> dict[str, Any]:
+        """Records the final state's seed, then summarizes as usual.
+
+        Args:
+            state: The graph's final state.
+            config: The investigation's configuration.
+
+        Returns:
+            What `execute._summarize` returns.
+        """
+        seen["sampling_seed"] = state.get("sampling_seed")
+        return original(state, config)
+
+    monkeypatch.setattr(execute, "_summarize", record_seed)
+    monkeypatch.setenv("CLOUD_RUN_TASK_ATTEMPT", "2")
+
+    result = asyncio.run(
+        execute.run_investigation_graph(
+            _config(), investigation_id="sweep-123", **_WINDOW
+        )
+    )
+
+    assert result["status"] == "done"
+    assert seen["sampling_seed"] == "sweep-123:2"
 
 
 def test_execute_investigation_forwards_run_id_and_retry_reuses_it(

@@ -80,7 +80,11 @@ Repository = "https://github.com/google/adk-recipes/tree/main/core/python/ambien
 path = "src/ambient_quality_shared/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ambient_quality_agent", "src/ambient_quality_shared"]
+packages = [
+    "src/ambient_quality_agent",
+    "src/ambient_quality_shared",
+    "src/aqua_atif",
+]
 
 [tool.uv]
 exclude-newer = "7 days"

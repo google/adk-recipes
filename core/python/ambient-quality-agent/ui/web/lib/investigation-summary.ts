@@ -26,6 +26,7 @@ import type {
   InvestigationProgress,
   Stats,
 } from "./aqua-api";
+import { hasEstimates } from "./estimates";
 import { isNoData } from "./failure";
 import { count, countEvaluatedTrajectories } from "./funnel";
 import {
@@ -215,7 +216,7 @@ export function isCancelled(investigation: InvestigationRecordLike): boolean {
 
 /** Whether a scheduled investigation's trigger is due and has not started it.
  *  The server fails such an investigation at the first submission after
- *  `SCHEDULED_INVESTIGATION_GRACE_MINUTES` (core/investigation/job_scheduling.py); until
+ *  `SCHEDULED_INVESTIGATION_GRACE_MINUTES` (tools/investigations/models.py); until
  *  then the row says it is late rather than still waiting. */
 export function isPastDue(
   investigation: InvestigationRecordLike,
@@ -307,16 +308,27 @@ export function formatInvestigationStateWord(
 /** The share of an investigation's judged trajectories that passed: passed over
  *  passed and failed. Eval-service errors are left out, being a failure of the
  *  eval service rather than of the agent (`trajectories_eval_errored` in
- *  tools/investigations/models.py). Null for an investigation whose row names a
- *  state instead, and for one whose every evaluation errored. */
+ *  tools/investigations/models.py). Estimated for all traffic in the window
+ *  when the investigation recorded estimates (`hasEstimates`), and the sample's
+ *  own rate otherwise. Null for an investigation whose row names a state
+ *  instead, and for one whose every evaluation errored. */
 export function passRate(
   investigation: InvestigationRecordLike,
 ): number | null {
   if (formatInvestigationStateWord(investigation)) return null;
-  const passed = count(investigation.counters?.trajectories_eval_passed);
-  const judged =
-    passed + count(investigation.counters?.trajectories_eval_failed);
-  return judged > 0 ? passed / judged : null;
+  const counters = investigation.counters;
+  const estimated = hasEstimates(counters);
+  const passed = count(
+    estimated
+      ? counters?.estimated_trajectories_eval_passed
+      : counters?.trajectories_eval_passed,
+  );
+  const failed = count(
+    estimated
+      ? counters?.estimated_trajectories_eval_failed
+      : counters?.trajectories_eval_failed,
+  );
+  return passed + failed > 0 ? passed / (passed + failed) : null;
 }
 
 /** Whether an investigation is an ambient sweep. Sweeps each cover the time

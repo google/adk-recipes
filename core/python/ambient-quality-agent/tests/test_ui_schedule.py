@@ -121,6 +121,8 @@ def test_get_shows_the_investigated_agent_not_the_first(inject) -> None:
                         watched=True,
                         investigation_schedule="30 6 * * 1-5",
                         scheduled_trigger_enabled=False,
+                        observed_engine_id="eng-9",
+                        unapplied_fields=[],
                     ),
                 ],
             }
@@ -133,6 +135,8 @@ def test_get_shows_the_investigated_agent_not_the_first(inject) -> None:
         "agent_name": "billing",
         "investigation_schedule": "30 6 * * 1-5",
         "scheduled_trigger_enabled": False,
+        "observed_engine_id": "eng-9",
+        "update_trigger_enabled": True,
         "updated_at": "2026-10-14T09:00:00+00:00",
     }
 

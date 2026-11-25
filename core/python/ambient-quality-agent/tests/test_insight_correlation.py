@@ -191,6 +191,10 @@ def _finding_set(
 def _state(**overrides: Any) -> dict[str, Any]:
     """Builds a seeded sweep state with verification enabled and enforced.
 
+    The counters stand for a sweep that judged its trajectories, which is what
+    auto-resolution requires; tests covering a sweep that judged nothing
+    override them.
+
     Args:
         **overrides: State field overrides.
 
@@ -204,6 +208,11 @@ def _state(**overrides: Any) -> dict[str, Any]:
         "insights_verification_enabled": True,
         "insights_verification_enforced": True,
         "finding_sets": [],
+        "counters": {
+            "trajectories_evaluated": 3,
+            "trajectories_eval_passed": 2,
+            "trajectories_eval_failed": 1,
+        },
     }
     state.update(overrides)
     return state
@@ -360,7 +369,14 @@ def test_counts_the_clusters_and_the_insights_they_became(
 
     insight_correlation_node._func(_ctx(state))
 
-    assert state["counters"] == {
+    # The sweep's own trajectory counters are seeded by `_state`; what this test
+    # pins is everything the correlation node adds on top of them.
+    node_counters = {
+        name: value
+        for name, value in state["counters"].items()
+        if not name.startswith("trajectories_")
+    }
+    assert node_counters == {
         "clusters_created": 2,
         "clusters_verified": 2,
         "clusters_rejected": 0,
@@ -449,6 +465,31 @@ def test_an_occurrence_names_the_trajectories_behind_its_cluster(
     _new_insights, _matched, occurrences = fake_store.saved[0]
     assert occurrences[0].trajectory_ids == ["case-1", "case-2"]
     assert occurrences[0].trajectory_count == len(occurrences[0].trajectory_ids)
+
+
+def test_an_occurrence_estimates_the_conversations_its_trajectories_stand_for(
+    fake_call: FakeInsightModelCall, fake_store: FakeInsightStore
+) -> None:
+    """Each trajectory counts as 1 / p conversations of all traffic."""
+    fake_call.response = json.dumps(
+        {
+            "clusters": [
+                {"label": "made no tool call", "finding_ids": ["0", "1", "2"]}
+            ]
+        }
+    )
+    state = _state(
+        finding_sets=[
+            _finding_set("r-1", "r-2", case_id="case-1"),
+            _finding_set("r-3", case_id="case-2"),
+        ]
+    )
+    state["trajectories_represented"] = {"case-1": 2.0, "case-2": 4.0}
+
+    insight_correlation_node._func(_ctx(state))
+
+    _new_insights, _matched, occurrences = fake_store.saved[0]
+    assert occurrences[0].estimated_trajectory_count == pytest.approx(6.0)
 
 
 def test_event_names_the_source_cases_of_each_candidate(
@@ -1629,6 +1670,56 @@ def test_an_ambient_run_still_resolves_stale_insights(
     insight_correlation_node._func(_ctx(state))
 
     assert fake_store.calls == ["cleanup", "find", "save", "resolve"]
+    assert [window for _now, window in fake_store.resolve_calls] == [14]
+
+
+@pytest.mark.parametrize(
+    "counters",
+    [
+        pytest.param(
+            {"trajectories_evaluated": 0},
+            id="window_held_no_trajectory",
+        ),
+        pytest.param(
+            {
+                "trajectories_evaluated": 50,
+                "trajectories_eval_errored": 50,
+            },
+            id="every_evaluation_errored",
+        ),
+        pytest.param({}, id="sweep_recorded_no_counter"),
+    ],
+)
+def test_a_sweep_that_judged_nothing_resolves_nothing(
+    fake_call: FakeInsightModelCall,
+    fake_store: FakeInsightStore,
+    counters: dict[str, int],
+) -> None:
+    """Resolution reads absence as evidence, so a sweep that reached no verdict
+    has none to offer. Both an empty window and a reviewer erroring on every
+    session end the sweep successfully, and neither says a defect went away."""
+    state = _state(counters=counters)
+
+    insight_correlation_node._func(_ctx(state))
+
+    assert fake_store.calls == ["cleanup"]
+    assert fake_store.resolve_calls == []
+
+
+def test_a_sweep_that_judged_some_of_its_trajectories_still_resolves(
+    fake_call: FakeInsightModelCall, fake_store: FakeInsightStore
+) -> None:
+    """One verdict among many errors is still an examined window: the gate asks
+    whether the sweep looked, not how much of it succeeded."""
+    state = _one_cluster_state(fake_call)
+    state["counters"] = {
+        "trajectories_evaluated": 50,
+        "trajectories_eval_failed": 1,
+        "trajectories_eval_errored": 49,
+    }
+
+    insight_correlation_node._func(_ctx(state))
+
     assert [window for _now, window in fake_store.resolve_calls] == [14]
 
 

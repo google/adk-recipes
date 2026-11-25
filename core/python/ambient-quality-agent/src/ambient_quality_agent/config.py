@@ -61,8 +61,16 @@ Code metrics are not a mode. Publishing one to `metrics_gcs_bucket` adds it to
 the session-review sweep, and publishing none leaves that sweep unchanged."""
 
 DEFAULT_QUALITY_ANALYSIS_MODE = "session_review"
-
 """Default quality analysis mode."""
+
+ALLOWED_DATA_SAMPLING = frozenset({"weighted", "uniform"})
+"""How an investigation picks the trajectories it reviews: ``weighted`` picks
+those with risk signals more often and records each one's chance of being
+picked, ``uniform`` gives every trajectory the same chance. The values of
+`tools.ingestion.sampling.SamplingMethod`."""
+
+DEFAULT_DATA_SAMPLING = "weighted"
+"""Default `data_sampling`."""
 
 DEFAULT_BQ_LOGGING_TABLE = "gen_ai_client_inference_operation_details"
 """Default table name for the Cloud Logging GenAI export sink (the
@@ -311,6 +319,11 @@ class Config:
     """Maximum number of trajectories to sample in a single investigation.
     Set by `aqua attach`."""
 
+    data_sampling: str = DEFAULT_DATA_SAMPLING
+    """How investigations pick their trajectories, one of
+    `ALLOWED_DATA_SAMPLING`. A custom investigation can choose its own. Set by
+    `aqua attach`."""
+
     multi_turn_metrics: list[str] = field(
         default_factory=lambda: [
             "task_success",
@@ -462,6 +475,13 @@ class Config:
             raise ValueError(
                 "quality_analysis_mode must be one of "
                 f"{{{allowed}}}, got {self.quality_analysis_mode!r}."
+            )
+
+        if self.data_sampling not in ALLOWED_DATA_SAMPLING:
+            allowed = ", ".join(sorted(ALLOWED_DATA_SAMPLING))
+            raise ValueError(
+                f"data_sampling must be one of {{{allowed}}}, got "
+                f"{self.data_sampling!r}."
             )
 
         object.__setattr__(
@@ -656,6 +676,9 @@ class ObservedAgentConfig:
 
     data_evaluation_cap: int = 1000
     """Most records one of its investigations pulls in."""
+
+    data_sampling: str = DEFAULT_DATA_SAMPLING
+    """How its investigations pick their trajectories."""
 
     investigation_selector_sql: str = ""
     """The selector its investigations without a selector or focus of their

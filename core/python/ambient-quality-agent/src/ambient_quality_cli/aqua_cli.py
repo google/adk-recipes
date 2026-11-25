@@ -1719,6 +1719,17 @@ def _add_attach_options(func):
             help="Most records one investigation pulls in.",
         ),
         click.option(
+            "--data-sampling",
+            type=click.Choice(["weighted", "uniform"]),
+            default=None,
+            help=(
+                "How an investigation picks the conversations it reviews: "
+                "weighted (the default) picks those with risk signals, such "
+                "as errors, more often and corrects its figures for it; "
+                "uniform gives every conversation the same chance."
+            ),
+        ),
+        click.option(
             "--auto-resolve-days",
             type=int,
             default=None,

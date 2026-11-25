@@ -42,6 +42,7 @@ import {
   mergeInsights,
   noneDiagnosed,
 } from "@/lib/aqua-api";
+import { formatInsightReach, SHARE_HELP } from "@/lib/estimates";
 import { link, mono, textStyle } from "@/lib/typography";
 import { cn, formatSentenceCase } from "@/lib/utils";
 import { isViewerMode } from "@/lib/viewer-mode";
@@ -604,9 +605,14 @@ export function IssueCard({
             {insight.occurrence_count}{" "}
             {insight.occurrence_count === 1 ? "occurrence" : "occurrences"}
           </span>
-          <span>
-            {insight.trajectory_count}{" "}
-            {insight.trajectory_count === 1 ? "trajectory" : "trajectories"}
+          <span
+            title={insight.estimated_share != null ? SHARE_HELP : undefined}
+          >
+            {formatInsightReach(
+              String(insight.trajectory_count),
+              insight.estimated_share,
+              insight.trajectory_count,
+            )}
           </span>
           <SubAgentItem insight={insight} />
           <span className="ml-auto">{insight.impact} impact</span>

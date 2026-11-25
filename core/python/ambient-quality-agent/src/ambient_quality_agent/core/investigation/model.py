@@ -604,6 +604,13 @@ async def get_investigation_stats(
     (``start``, ``end``) and the ``window_end`` span actually covered by the
     counted investigations (``covered_start``, ``covered_end``).
 
+    The ``trajectories_*`` sums count the reviewed samples, which weighted
+    sampling fills with risky trajectories on purpose, so their pass rate is
+    not that of all traffic. The ``estimated_trajectories_*`` sums estimate
+    all traffic (estimated passed over estimated passed plus failed), but
+    only over the investigations that recorded estimates, so they must not be
+    compared with the sample sums.
+
     Args:
         tool_context: Launch context providing access to execution state.
         window_start: ISO instant lower bound on `window_end`; empty for no
@@ -650,6 +657,10 @@ async def get_daily_trends(
     Days with no investigations are omitted so callers can distinguish inactive
     days from days with zero findings; each returned day includes an
     `unmeasured` count of investigations that recorded all-zero counters.
+
+    As in `get_investigation_stats`, the ``trajectories_*`` sums count the
+    reviewed samples and the ``estimated_trajectories_*`` sums estimate all
+    traffic over the investigations that recorded estimates.
 
     Args:
         tool_context: Launch context providing access to execution state.

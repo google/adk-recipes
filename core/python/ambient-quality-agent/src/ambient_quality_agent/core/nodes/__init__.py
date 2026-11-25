@@ -23,7 +23,7 @@ Wiring::
                          │ run_sweep()
                          ▼
                       _sweep ──► BaseFetcher        via _common.fetcher_factory()
-                         │ Evaluation.evaluate() appends
+                         │ Evaluation.evaluate(), Evaluation.finish()
                          ▼
                 state["finding_sets"]
                          │ merge_finding_sets()

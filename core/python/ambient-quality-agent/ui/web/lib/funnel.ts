@@ -124,7 +124,8 @@ export const STAGE_HELP: Readonly<Record<StageId, string>> = {
     "total includes trajectories whose ingestion failed.",
   evaluated:
     "Ingested trajectories that metrics checked, to see how the agent " +
-    "performed.",
+    "performed. The sample can pick risky conversations more often, so it " +
+    "can look worse than all traffic.",
   insights:
     "Failure patterns found in the evaluated trajectories. One insight can " +
     "count more than once, even in one investigation, so this is not the " +

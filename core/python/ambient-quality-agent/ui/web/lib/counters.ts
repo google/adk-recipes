@@ -64,6 +64,21 @@ export const COUNTER_FIELDS: readonly CounterField[] = [
     help: "The eval service crashed or timed out on this trajectory, so it returned no verdict. An AQuA failure, not an agent defect.",
   },
   {
+    key: "estimated_trajectories_eval_passed",
+    label: "Estimated passed",
+    help: "Trajectories of all traffic in the window estimated to pass every metric.",
+  },
+  {
+    key: "estimated_trajectories_eval_failed",
+    label: "Estimated failed",
+    help: "Trajectories of all traffic in the window estimated to fail a metric.",
+  },
+  {
+    key: "trajectories_evaluated_with_risk_signals",
+    label: "Picked for risk signals",
+    help: "Evaluated trajectories with at least one risk signal, such as an error, which made them likelier to be picked.",
+  },
+  {
     key: "rubrics_generated",
     label: "Rubrics generated",
     help: "Individual checks evaluated across the ingested trajectories.",

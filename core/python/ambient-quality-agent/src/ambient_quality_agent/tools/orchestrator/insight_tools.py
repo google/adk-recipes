@@ -231,6 +231,7 @@ async def list_insights(
     page_size: int = 0,
     day: str = "",
     page: int = 0,
+    query: str = "",
 ) -> dict[str, Any]:
     """List durable quality insights for the observed agent (paginated).
 
@@ -247,7 +248,8 @@ async def list_insights(
         window_end: ISO instant. Keep only issues last seen at or before it;
             empty for no upper bound.
         order_by: how to rank the issues -- ``"recent"`` (the default) for last
-            seen first, ``"impact"`` for most conversations affected first. The
+            seen first, ``"impact"`` for most conversations of all traffic
+            affected first, by each issue's estimated conversations. The
             ranking is over everything that matches, so the first page is the
             top of the list rather than the top of one page of it.
         page_size: how many issues to return, up to `MAX_INSIGHTS_PAGE_SIZE`;
@@ -261,11 +263,25 @@ async def list_insights(
             addresses a page directly, such as a dashboard URL that names one.
             Ignored when ``page_token`` is set; 0 (the default) is the first
             page.
+        query: keep only issues whose label contains this text or whose id
+            starts with it, ignoring case; empty (the default) for no text
+            filter. Searches every stored issue, not one page.
 
     Returns ``{"insights": [...], "total": N, "conversations": M,
     "next_page_token": str | None}``; each insight carries its label, status,
     timestamps, occurrence stats and ``has_root_cause``, but not the finding
     examples (use `get_insight` for that).
+
+    Investigations may review risky conversations more often than others, so
+    an insight's ``trajectory_count`` counts reviewed conversations, not its
+    reach. ``estimated_trajectory_count`` is how many conversations of all
+    traffic those stand for, and ``estimated_share`` the estimated share of
+    all conversations that show the issue, usually from 0 to 1, over the
+    investigations from the first that saw it to the latest (with
+    ``investigation_id``, that investigation's alone). Quote these for how
+    widespread an issue is; either is null when it cannot be estimated.
+    ``impact`` is what the impact order ranks by: the estimated
+    conversations, counting reviewed ones where no estimate exists.
 
     ``conversations`` is the distinct conversations behind every insight the
     filters match, not just the returned page, so a caller can say how much
@@ -299,6 +315,7 @@ async def list_insights(
         "window_end": window_end or None,
         "has_root_cause": diagnosed,
         "day": changed_on,
+        "query": query.strip() or None,
     }
     try:
         # Offload synchronous BigQuery calls to a worker thread to keep the

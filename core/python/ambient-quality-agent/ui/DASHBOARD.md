@@ -105,7 +105,7 @@ and a **Retry** on every list.
 | `GET /api/investigations/{investigation_id}/trajectories/{trajectory_id}` | `{"trajectory_bundle": {...}}` — one trajectory |
 | `GET /api/stats` | `{"stats": {...}, "window": {...}}` — investigations' counters, summed |
 | `GET /api/daily` | `{"days": [...]}` — per-day figures for the charts |
-| `GET /api/insights` | `{"insights": [...], "total", "next_page_token"}`; optional `status`, `investigationId`, `hasRootCause`, `pageToken` |
+| `GET /api/insights` | `{"insights": [...], "total", "next_page_token"}`; optional `status`, `investigationId`, `hasRootCause`, `pageToken`, and `q` (text the label contains or the id starts with, over every insight) |
 | `GET /api/insights/{insight_id}` | `{"insight": {...}, "occurrences": [...], "next_page_token"}`; `includeTraces=1` keeps the conversation turns a stored example carries |
 | `POST /api/insights/{insight_id}/dismiss` | `{"dismissed": true}` |
 | `POST /api/insights/{insight_id}/merge` | `{"merged": true}` |

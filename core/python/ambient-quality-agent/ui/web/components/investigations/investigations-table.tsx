@@ -14,6 +14,7 @@
 
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { type RefObject, useLayoutEffect, useRef, useState } from "react";
+import { ESTIMATE_HELP, hasEstimates } from "@/lib/estimates";
 import type { InvestigationListItem } from "@/lib/aqua-api";
 import { describeFailure, isNoData } from "@/lib/failure";
 import { count, STAGES, type StageId } from "@/lib/funnel";
@@ -710,7 +711,10 @@ function InvestigationPassRate({
           style={{ width: `${(1 - rate) * 100}%` }}
         />
       </span>
-      <span className={cn(textStyle.meta, "min-w-10 text-foreground")}>
+      <span
+        className={cn(textStyle.meta, "min-w-10 text-foreground")}
+        title={hasEstimates(investigation.counters) ? ESTIMATE_HELP : undefined}
+      >
         {formatSentenceCase(formatInvestigationOutcome(investigation))}
       </span>
     </span>

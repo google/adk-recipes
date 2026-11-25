@@ -207,7 +207,12 @@ def test_outcomes_returns_a_day_per_bucket(use_reader) -> None:
 
     assert result == {
         "days": [
-            {"day": "2026-06-01", "outcome": "not_ingested", "trajectories": 2}
+            {
+                "day": "2026-06-01",
+                "outcome": "not_ingested",
+                "trajectories": 2,
+                "estimated_trajectories": None,
+            }
         ]
     }
 

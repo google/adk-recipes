@@ -161,10 +161,12 @@ class _FakeReader:
         has_root_cause=None,
         order_by=InsightOrder.RECENT,
         day=None,
+        query=None,
     ):
         self.list_calls.append(
             {
                 "day": day,
+                "query": query,
                 "statuses": statuses,
                 "investigation_id": investigation_id,
                 "limit": limit,
@@ -186,10 +188,12 @@ class _FakeReader:
         window_end=None,
         has_root_cause=None,
         day=None,
+        query=None,
     ):
         self.conversation_calls.append(
             {
                 "day": day,
+                "query": query,
                 "statuses": statuses,
                 "investigation_id": investigation_id,
                 "window_start": window_start,
@@ -1236,3 +1240,25 @@ def test_a_write_that_raises_comes_back_as_an_error_payload(use_store) -> None:
     out = _call_dismiss(StateContext(), insight_id="ins-1")
 
     assert "table not found" in out["error"]
+
+
+def test_list_insights_forwards_a_query_to_the_list_and_its_header(
+    use_reader,
+) -> None:
+    """Both reads: the header's conversation count describes the same set the
+    search returned."""
+    reader = use_reader(_FakeReader(summaries=[], total=0))
+
+    out = _call_list(StateContext(), query="  employee id ")
+
+    assert "error" not in out
+    assert reader.list_calls[0]["query"] == "employee id"
+    assert reader.conversation_calls[0]["query"] == "employee id"
+
+
+def test_list_insights_sends_no_query_when_none_is_given(use_reader) -> None:
+    reader = use_reader(_FakeReader(summaries=[], total=0))
+
+    _call_list(StateContext())
+
+    assert reader.list_calls[0]["query"] is None

@@ -379,6 +379,21 @@ def test_attach_sends_only_the_flags_given_under_their_field_names(
     }
 
 
+def test_the_sampling_flag_sets_data_sampling(runner, monkeypatch) -> None:
+    fake = _install_deployment(monkeypatch)
+
+    _invoke(
+        runner,
+        "attach",
+        "watched_agent",
+        "--data-sampling",
+        "uniform",
+        "--dry-run",
+    )
+
+    assert fake.calls[0][1]["fields"] == {"data_sampling": "uniform"}
+
+
 def test_without_a_name_the_cli_leaves_the_name_to_the_deployment(
     runner, monkeypatch
 ) -> None:

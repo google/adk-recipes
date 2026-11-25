@@ -54,7 +54,7 @@ vi.mock("@/lib/a2a-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/a2a-client")>()),
   createLhaClient,
 }));
-// The rail, the panes and the palette have their own tests and their own
+// The rail and the panes have their own tests and their own
 // queries; none of them takes part in switching conversations.
 vi.mock("@/components/nav/sidebar-rail", () => ({
   SidebarRail: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -78,7 +78,6 @@ vi.mock("@/components/ui/resizable", () => ({
 vi.mock("../artifact-viewer/artifact-viewer", () => ({
   ArtifactViewer: () => null,
 }));
-vi.mock("../command-palette", () => ({ CommandPalette: () => null }));
 
 import type { HorizonClient } from "@/lib/a2a-client";
 import {

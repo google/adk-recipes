@@ -139,15 +139,33 @@ class InMemoryTrajectoryReader:
         counts: collections.Counter[
             tuple[dt.date, TrajectoryProcessingState]
         ] = collections.Counter()
+        # A bucket holding any trajectory without a probability has no
+        # estimate, which None marks.
+        estimates: dict[
+            tuple[dt.date, TrajectoryProcessingState], float | None
+        ] = {}
         evidence = self._compute_evidence_keys()
         for trajectory in self._list_matching_investigation_trajectories(
             window_start=window_start, window_end=window_end
         ):
             day = trajectory.created_at.astimezone(dt.UTC).date()
-            counts[day, _compute_outcome(trajectory, evidence)] += 1
+            key = (day, _compute_outcome(trajectory, evidence))
+            counts[key] += 1
+            estimate = estimates.get(key, 0.0)
+            probability = trajectory.inclusion_probability
+            estimates[key] = (
+                None
+                if estimate is None or probability is None
+                else estimate + 1 / probability
+            )
         # Days without trajectories are omitted so callers can construct custom buckets.
         return [
-            DailyOutcome(day=day, outcome=outcome, trajectories=total)
+            DailyOutcome(
+                day=day,
+                outcome=outcome,
+                trajectories=total,
+                estimated_trajectories=estimates[day, outcome],
+            )
             for (day, outcome), total in sorted(counts.items())
         ]
 

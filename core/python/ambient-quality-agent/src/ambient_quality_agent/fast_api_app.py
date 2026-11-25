@@ -22,7 +22,8 @@ Wiring::
         ▼
     _lifespan()
         ├──► backends.configure_providers()
-        ├──► check_investigations_schema(), check_insights_schema() ──► BigQuery
+        ├──► check_investigations_schema(), check_insights_schema(),
+        │    check_trajectories_schema() ──► BigQuery
         ├──► attach_a2a_routes() onto app, at the chat agent's A2A path
         │      ├ agent: chat_agent.build_chat_agent()
         │      ├ runner: Runner ◄── services.get_session_service(),
@@ -80,6 +81,7 @@ from ambient_quality_agent.core.command_routes import router as commands_router
 from ambient_quality_agent.startup_checks import (
     check_insights_schema,
     check_investigations_schema,
+    check_trajectories_schema,
 )
 from ambient_quality_agent.telemetry import setup as telemetry_setup
 from fastapi import FastAPI, Request
@@ -169,11 +171,12 @@ async def _lifespan(fastapi_app: FastAPI) -> AsyncIterator[None]:
     # the lifespan rather than at import, so importing this module rewires
     # nothing.
     backends.configure_providers()
-    # Both checks read a live BigQuery table's schema. Standalone has no
+    # The checks read live BigQuery tables' schemas. Standalone has no
     # dataset, and an in-process store has no schema to fall behind the models.
     if not config_module.load().standalone:
         await check_investigations_schema()
         await check_insights_schema()
+        await check_trajectories_schema()
     agent = chat_agent.build_chat_agent()
     # One agent, one runner. `attach_a2a_routes` uses `agent` only to build the
     # card and executes whatever `runner` wraps, so a runner over a *different*

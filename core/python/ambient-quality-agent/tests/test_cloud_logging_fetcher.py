@@ -950,9 +950,8 @@ def _targets_of(sql: str) -> str:
     Returns:
         Extracted targets CTE SQL fragment.
     """
-    return sql.split("WITH TargetSessions AS (\n", 1)[1].split(
-        "\n  ORDER BY RAND()", 1
-    )[0]
+    cte = sql.split("WITH TargetSessions AS (\n", 1)[1]
+    return cte.split("  FROM (\n", 1)[1].split("\n  )\n  ORDER BY RAND()", 1)[0]
 
 
 def _below_the_cte(sql: str) -> str:

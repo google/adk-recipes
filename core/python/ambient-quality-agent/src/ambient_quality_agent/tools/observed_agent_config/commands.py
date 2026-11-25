@@ -652,6 +652,7 @@ async def list_agents() -> dict[str, Any]:
         if record is None:
             # Deleted between the listing and the read.
             continue
+        unapplied = record.list_unapplied_fields()
         entry.update(
             agent_name=record.agent_name,
             default=record.default,
@@ -664,7 +665,9 @@ async def list_agents() -> dict[str, Any]:
             investigation_schedule=record.investigation_schedule,
             scheduled_trigger_enabled=record.scheduled_trigger_enabled,
             updated_at=record.updated_at,
-            unapplied_fields=record.list_unapplied_fields(),
+            unapplied_fields=unapplied,
+            update_trigger_enabled=bool(record.observed_engine_id)
+            and not unapplied,
             # What `detach` revokes.
             grants=_list_grant_records(record),
         )

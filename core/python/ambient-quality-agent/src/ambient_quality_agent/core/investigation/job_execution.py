@@ -452,6 +452,10 @@ async def run_investigation_graph(
             "trigger_type": trigger_type,
             "selector_sql": selector_sql,
             "session_review_focus": overrides.review_focus,
+            "data_sampling": overrides.resolve_sampling(config.data_sampling),
+            # A trajectory that crashed the job would otherwise be drawn again
+            # on every retry.
+            "sampling_seed": f"{investigation_id}:{_read_task_attempt()}",
             "memory_baseline_mb": memory.read_cgroup_current_mb(),
         }
         session = await runner.session_service.create_session(

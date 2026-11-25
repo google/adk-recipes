@@ -51,6 +51,7 @@ from ambient_quality_agent.tools.investigations.models import (
     InvestigationCounters,
     list_counter_names,
 )
+from ambient_quality_agent.tools.trajectories.models import SamplingSignals
 
 
 def _load(name: str) -> Any:
@@ -665,8 +666,18 @@ def test_the_insight_list_pages_a_ranking_of_every_match(served) -> None:
 
     assert len(seen) == len(served.list_visible_insights())
     assert len({i["insight_id"] for i in seen}) == len(seen)
-    traces = [int(i["trajectory_count"]) for i in seen]
-    assert traces == sorted(traces, reverse=True)
+    # `reader.compute_impact`: estimated conversations, or reviewed ones for an
+    # occurrence without an estimate.
+    impact = [
+        sum(
+            o["trajectory_count"]
+            if o.get("estimated_trajectory_count") is None
+            else o["estimated_trajectory_count"]
+            for o in served.list_occurrences(i["insight_id"])
+        )
+        for i in seen
+    ]
+    assert impact == sorted(impact, reverse=True)
 
 
 def test_the_insight_list_serves_a_page_by_number(served) -> None:
@@ -1015,8 +1026,15 @@ def test_a_schedule_change_reaches_the_listing_and_the_health(dataset) -> None:
 
 
 def test_a_paused_schedule_is_none_in_the_health(dataset) -> None:
-    # As the engine reports it: a paused agent has no schedule its ticks run.
-    served = mock_server.Dataset(dataset, settle_seconds=0)
+    served = mock_server.Dataset(copy.deepcopy(dataset), settle_seconds=0)
+    for run in served.runs:
+        if str(run.get("status")) in mock_server.IN_FLIGHT:
+            run.update(
+                {
+                    "status": "done",
+                    "finished_at": mock_server._format_utc_now_iso(),
+                }
+            )
     mock_server._attach_agent(
         served,
         {
@@ -1024,7 +1042,13 @@ def test_a_paused_schedule_is_none_in_the_health(dataset) -> None:
             "fields": {"scheduled_trigger_enabled": False},
         },
     )
-    assert mock_server._get_ambient_health(served)["schedule"] is None
+
+    health = mock_server._get_ambient_health(served)
+    assert health["schedule"] is None
+    assert health["verdict"] == mock_server.DISABLED
+    config_body = mock_server._show_config(served)
+    assert config_body["ambient"]["scheduled_trigger_enabled"] is False
+    assert config_body["ongoing_investigations"] == []
     assert (
         mock_server._list_agents(served)["agents"][0][
             "scheduled_trigger_enabled"
@@ -1949,6 +1973,7 @@ def test_the_health_vocabulary_is_the_agents(dataset) -> None:
     assert mock_server.WATCHING == health.WATCHING
     assert mock_server.OVERDUE == health.OVERDUE
     assert mock_server.NEVER == health.NEVER
+    assert mock_server.DISABLED == health.DISABLED
     assert mock_server.IN_FLIGHT == {s.value for s in health.IN_FLIGHT}
     assert mock_server.IN_FLIGHT <= {
         s.value for s in models.InvestigationStatus
@@ -1998,6 +2023,37 @@ def test_health_answers_in_the_shape_the_badge_reads(dataset) -> None:
     assert payload["last_investigation"]["investigation_id"]
     assert payload["open_findings"] > 0
     assert payload["worst_finding"]["insight_id"]
+
+
+def test_the_mock_formats_the_last_investigation_as_the_engine_does(
+    dataset,
+) -> None:
+    """The badge reads one shape whichever server answered, so the mirrored
+    formatter has to agree with the engine's field for field -- including the
+    counts that keep errored evaluations out of the pass rate."""
+    from ambient_quality_agent.tools.investigations import health
+
+    data = mock_server.Dataset(copy.deepcopy(dataset), settle_seconds=0)
+    finished = [r for r in data.runs if r.get("finished_at")]
+    newest = max(finished, key=lambda r: str(r["finished_at"]))
+
+    assert mock_server._format_last_investigation(
+        newest
+    ) == health._format_last_investigation(newest)
+
+    # And on the sweep the two formulas disagree about, which the generated
+    # month does not contain: every evaluation errored, so nothing was judged.
+    outage = copy.deepcopy(newest)
+    outage["counters"].update(
+        trajectories_eval_passed=0,
+        trajectories_eval_failed=0,
+        trajectories_eval_errored=outage["counters"]["trajectories_evaluated"],
+    )
+    mirrored = mock_server._format_last_investigation(outage)
+
+    assert mirrored == health._format_last_investigation(outage)
+    assert mirrored["pass_rate"] is None
+    assert mirrored["trajectories_errored"] > 0
 
 
 def test_a_sweep_in_flight_turns_the_badge_amber(dataset) -> None:
@@ -2538,6 +2594,17 @@ def test_the_trajectory_bundle_route_answers_the_shape_the_agent_does(
     )
 
 
+def test_a_mock_trajectory_carries_every_sampling_signal() -> None:
+    """The dashboard reads the percentiles to say how high a trajectory
+    ranked; a mock without them shows a label the engine never sends."""
+    trajectory = mock_server._build_mock_trajectory("run-1", "case-1", 2)
+
+    assert set(trajectory["sampling_signals"]) == set(
+        SamplingSignals.model_fields
+    )
+    SamplingSignals.model_validate(trajectory["sampling_signals"])
+
+
 def test_the_trajectory_bundle_route_needs_an_id() -> None:
     assert "error" in mock_server._get_trajectory_bundle(None, {})
 
@@ -2839,3 +2906,22 @@ def test_mock_rca_turn_records_root_cause_with_context_id() -> None:
     assert detail["insight"]["has_root_cause"] is True
     assert detail["insight"]["root_cause_context_ids"] == ["ctx-live-rca"]
     assert detail["root_causes"][0]["context_id"] == "ctx-live-rca"
+
+
+def test_a_search_finds_insights_beyond_the_first_page(served) -> None:
+    """The point of searching on the server: an insight far down the list is
+    found by its words, and the count is of what matched."""
+    everything = mock_server._list_insights(served, {"page_size": 100})[
+        "insights"
+    ]
+    last = everything[-1]
+    word = max(last["label"].split(), key=len)
+
+    found = mock_server._list_insights(served, {"query": word.upper()})
+
+    assert last["insight_id"] in [i["insight_id"] for i in found["insights"]]
+    assert found["total"] == len(found["insights"])
+    by_id = mock_server._list_insights(
+        served, {"query": last["insight_id"][:8]}
+    )
+    assert [i["insight_id"] for i in by_id["insights"]] == [last["insight_id"]]

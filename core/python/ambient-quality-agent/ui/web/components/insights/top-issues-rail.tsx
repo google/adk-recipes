@@ -41,6 +41,7 @@ import {
   investigationsQuery,
   isDiagnosed,
 } from "@/lib/aqua-api";
+import { formatInsightReach, SHARE_HELP } from "@/lib/estimates";
 import { countEvaluatedTrajectories } from "@/lib/funnel";
 import { cn } from "@/lib/utils";
 import { DiagnoseInChatButton } from "./diagnose-in-chat-button";
@@ -158,12 +159,14 @@ function IssueRow({ insight }: { insight: InsightView }) {
               <Stethoscope className="size-3" />
             </span>
           )}
-          {/* Trajectories first: they are what the rail is ranked by. No percentage --
-              nothing measures one. A bare 0% would read as "certainly nothing"
-              rather than "not investigated yet". */}
-          <span>
-            {formatCount(insight.trajectory_count)}{" "}
-            {insight.trajectory_count === 1 ? "trajectory" : "trajectories"}
+          <span
+            title={insight.estimated_share != null ? SHARE_HELP : undefined}
+          >
+            {formatInsightReach(
+              formatCount(insight.trajectory_count),
+              insight.estimated_share,
+              insight.trajectory_count,
+            )}
             {!isDiagnosed(insight) && " · undiagnosed"}
           </span>
         </span>

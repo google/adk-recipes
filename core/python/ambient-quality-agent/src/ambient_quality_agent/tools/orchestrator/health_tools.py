@@ -27,15 +27,9 @@ from typing import Any
 
 from ambient_quality_agent import config as config_module
 from ambient_quality_agent.core.investigation import model
-from ambient_quality_agent.core.session_state import (
-    ADKStateLike,
-    LaunchContext,
-)
+from ambient_quality_agent.core.session_state import LaunchContext
 from ambient_quality_agent.tools.investigations import health
-from ambient_quality_agent.tools.observed_agent_config import (
-    effective_config,
-    schedule,
-)
+from ambient_quality_agent.tools.observed_agent_config import effective_config
 from ambient_quality_agent.tools.orchestrator import insight_tools
 
 logger = logging.getLogger(__name__)
@@ -49,8 +43,8 @@ async def get_ambient_health(tool_context: LaunchContext) -> dict[str, Any]:
 
     Returns:
         Dictionary containing health status fields (verdict, reason,
-        last_investigation details), or an error dictionary if deployment state
-        cannot be read.
+        ongoing_investigations, last_investigation details), or an error
+        dictionary if deployment state cannot be read.
     """
     try:
         investigations = (await model.list_investigations(tool_context)).get(
@@ -64,34 +58,28 @@ async def get_ambient_health(tool_context: LaunchContext) -> dict[str, Any]:
         # Prevents masking read failures with an inaccurate "watching" verdict.
         return {"error": f"{type(exc).__name__}: {exc}"}
     standalone = config_module.load().standalone
+    ambient = await asyncio.to_thread(
+        lambda: effective_config.resolve_ambient_status(
+            tool_context.state, standalone=standalone
+        )
+    )
     cron = (
-        None
-        if standalone
-        else await asyncio.to_thread(_resolve_schedule, tool_context.state)
+        ambient["investigation_schedule"]
+        if ambient.get("scheduled_trigger_enabled")
+        else None
+    )
+    triggers_enabled = (
+        bool(
+            ambient.get("scheduled_trigger_enabled")
+            or ambient.get("update_trigger_enabled")
+        )
+        if ambient.get("attached") is True
+        else None
     )
     return health.assess(
-        investigations, insights, schedule=cron, standalone=standalone
+        investigations,
+        insights,
+        schedule=cron,
+        standalone=standalone,
+        triggers_enabled=triggers_enabled,
     ).to_payload()
-
-
-def _resolve_schedule(state: ADKStateLike) -> str | None:
-    """Resolves the schedule the engine runs for the request's agent.
-
-    Args:
-        state: Session state, which may select the agent.
-
-    Returns:
-        The cron expression the scheduler ticks are checked against, or `None`
-        when no agent is investigated, its schedule is paused, or its
-        attachment cannot be read.
-    """
-    if not effective_config.resolve_selected_agent_key(state):
-        return None
-    try:
-        record = effective_config.load_selected_agent_record(state)
-    except Exception:
-        # The badge must not show the default for an agent whose own schedule
-        # could not be read.
-        logger.warning("health: could not read the attachment", exc_info=True)
-        return None
-    return schedule.resolve_investigation_schedule(record)

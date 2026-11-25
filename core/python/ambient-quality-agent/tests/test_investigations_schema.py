@@ -373,6 +373,7 @@ def test_the_overrides_round_trip_as_one_json_column() -> None:
     assert json.loads(row["custom_overrides"]) == {
         "selector_sql": "SELECT session_id FROM t",
         "session_review_focus": "refunds",
+        "sampling": "",
     }
     read_back = Investigation.model_validate(
         {"investigation_id": "r1", "custom_overrides": row["custom_overrides"]}

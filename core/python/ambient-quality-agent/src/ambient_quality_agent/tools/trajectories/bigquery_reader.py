@@ -148,7 +148,12 @@ class BigQueryTrajectoryReader:
 SELECT
   DATE(t.created_at) AS day,
   {_OUTCOME_SQL} AS outcome,
-  COUNT(*) AS trajectories
+  COUNT(*) AS trajectories,
+  IF(
+    COUNTIF(t.inclusion_probability IS NULL) > 0,
+    NULL,
+    SUM(1 / t.inclusion_probability)
+  ) AS estimated_trajectories
 FROM {self._build_investigation_trajectories_join()}
 WHERE {where}
 GROUP BY day, outcome
@@ -159,6 +164,7 @@ ORDER BY day, outcome
                 day=row["day"],
                 outcome=TrajectoryProcessingState(row["outcome"]),
                 trajectories=int(row["trajectories"] or 0),
+                estimated_trajectories=row.get("estimated_trajectories"),
             )
             for row in self._run(sql, params)
         ]
@@ -211,6 +217,7 @@ ORDER BY day, outcome
 SELECT
   t.run_id, t.agent_name, t.trajectory_id, t.created_at, t.source,
   t.source_session_id, t.source_trace_ids, t.ingest_status,
+  t.sampling_weight, t.inclusion_probability, t.sampling_signals,
   {_OUTCOME_SQL} AS outcome
 FROM {self._build_investigation_trajectories_join()}
 WHERE {where}
@@ -235,7 +242,8 @@ LIMIT @limit OFFSET @offset
         wanted = set(keys)
         sql = f"""
 SELECT t.run_id, t.agent_name, t.trajectory_id, t.created_at, t.source,
-       t.source_session_id, t.source_trace_ids, t.ingest_status
+       t.source_session_id, t.source_trace_ids, t.ingest_status,
+       t.sampling_weight, t.inclusion_probability, t.sampling_signals
 FROM `{self._build_table_ref(_INVESTIGATION_TRAJECTORIES_TABLE)}` AS t
 WHERE t.agent_name = @agent_name
   AND t.run_id IN UNNEST(@investigation_ids)
@@ -447,6 +455,9 @@ def _row_to_investigation_trajectory(row: Any) -> InvestigationTrajectory:
         # guard is for a row a caller built by hand.
         source_trace_ids=list(row["source_trace_ids"] or []),
         ingest_status=IngestStatus(row["ingest_status"]),
+        sampling_weight=row.get("sampling_weight"),
+        inclusion_probability=row.get("inclusion_probability"),
+        sampling_signals=row.get("sampling_signals"),
     )
 
 

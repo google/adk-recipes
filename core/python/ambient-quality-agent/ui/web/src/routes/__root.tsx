@@ -19,6 +19,7 @@ import {
   retainSearchParams,
 } from "@tanstack/react-router";
 import { QueryProvider } from "@/app/providers";
+import { CommandPalette } from "@/components/nav/command-palette";
 import { TabBar } from "@/components/nav/tab-bar";
 import { TourOverlay } from "@/components/tour/tour-overlay";
 import {
@@ -46,6 +47,7 @@ function RootComponent() {
             </div>
           </div>
           <TourOverlay />
+          <CommandPalette />
         </TooltipProvider>
       </AgentSelectionProvider>
     </QueryProvider>

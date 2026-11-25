@@ -72,6 +72,22 @@ describe("passRate", () => {
     ).toBe(0.75);
   });
 
+  it("is estimated for all traffic when the investigation recorded estimates", () => {
+    // Weighted sampling over-represents failures: the sample passes 30 of 40,
+    // the window an estimated 900 of 1,000.
+    expect(
+      passRate(
+        done({
+          trajectories_evaluated: 40,
+          trajectories_eval_passed: 30,
+          trajectories_eval_failed: 10,
+          estimated_trajectories_eval_passed: 900,
+          estimated_trajectories_eval_failed: 100,
+        }),
+      ),
+    ).toBe(0.9);
+  });
+
   it("is null when nothing was judged, or when the row names a state instead", () => {
     expect(passRate(done({ trajectories_eval_errored: 5 }))).toBeNull();
     expect(passRate(done({}))).toBeNull();

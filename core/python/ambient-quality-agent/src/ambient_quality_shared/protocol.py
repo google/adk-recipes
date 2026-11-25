@@ -118,6 +118,8 @@ class ListInsightsArgs(WindowArgs, total=False):
     order_by: str
     page_size: int
     day: str
+    # Text matched against the label or an id prefix, ignoring case.
+    query: str
 
 
 class GetInsightArgs(AgentKeyArgs):

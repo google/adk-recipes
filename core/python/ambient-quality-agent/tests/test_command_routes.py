@@ -166,6 +166,7 @@ def test_list_insights_forwards_its_filters(
         page_size=0,
         day="",
         page=0,
+        query="",
     ):
         captured.update(
             status=status,
@@ -178,6 +179,7 @@ def test_list_insights_forwards_its_filters(
             page_size=page_size,
             day=day,
             page=page,
+            query=query,
         )
         return {"insights": [], "total": 0, "next_page_token": None}
 
@@ -192,6 +194,7 @@ def test_list_insights_forwards_its_filters(
             "page_size": 10,
             "day": "2026-09-20",
             "page": 3,
+            "query": "employee id",
         },
     )
 
@@ -208,6 +211,7 @@ def test_list_insights_forwards_its_filters(
         "page_size": 10,
         "day": "2026-09-20",
         "page": 3,
+        "query": "employee id",
     }
 
 
@@ -229,6 +233,7 @@ def test_list_insights_without_a_body_uses_the_tool_defaults(
         page_size=0,
         day="",
         page=0,
+        query="",
     ):
         captured.update(
             status=status,
@@ -241,6 +246,7 @@ def test_list_insights_without_a_body_uses_the_tool_defaults(
             page_size=page_size,
             day=day,
             page=page,
+            query=query,
         )
         return {"insights": []}
 
@@ -260,6 +266,7 @@ def test_list_insights_without_a_body_uses_the_tool_defaults(
         "page_size": 0,
         "day": "",
         "page": 0,
+        "query": "",
     }
 
 
@@ -410,6 +417,114 @@ def test_show_config_reports_usage_analytics_off_while_the_switch_is_off(
     response = client.post("/config")
 
     assert response.json()["usage_analytics"] == {"enabled": False}
+
+
+def test_show_config_reports_ambient_status_and_ongoing_investigations(
+    client: TestClient, jobs_store: Any
+) -> None:
+    import datetime as dt
+
+    from ambient_quality_agent.config import ObservedAgentConfig
+
+    store.save_agent_record(
+        jobs_store,
+        store.AgentRecord(
+            config=ObservedAgentConfig(
+                observed_agent_name="it_support_agent",
+                agent_key=_DEFAULT_KEY,
+                observed_project_id="acme-prod",
+            ),
+            investigation_schedule="0 4 * * *",
+            scheduled_trigger_enabled=True,
+            observed_engine_id="eng-42",
+            applied=store.Applied(
+                at="2026-10-01T00:00:00+00:00",
+                observed_engine_id="eng-42",
+                observed_project_id="acme-prod",
+            ),
+        ),
+    )
+    effective_config.clear_cache()
+
+    now = dt.datetime.now(tz=dt.UTC)
+    create_investigation(
+        {},
+        runs.Investigation(
+            investigation_id="inv-running",
+            observed_agent_key=_DEFAULT_KEY,
+            status=runs.InvestigationStatus.RUNNING,
+            trigger_type="scheduled",
+            created_at=(now - dt.timedelta(minutes=5)).isoformat(),
+        ),
+    )
+    create_investigation(
+        {},
+        runs.Investigation(
+            investigation_id="inv-scheduled",
+            observed_agent_key=_DEFAULT_KEY,
+            status=runs.InvestigationStatus.SCHEDULED,
+            trigger_type="update",
+            created_at=(now - dt.timedelta(minutes=2)).isoformat(),
+            due_at=(now + dt.timedelta(minutes=10)).isoformat(),
+        ),
+    )
+    # Stale pending row (> 30m old) and done row must not count as ongoing.
+    create_investigation(
+        {},
+        runs.Investigation(
+            investigation_id="inv-stale",
+            observed_agent_key=_DEFAULT_KEY,
+            status=runs.InvestigationStatus.PENDING,
+            created_at=(now - dt.timedelta(minutes=90)).isoformat(),
+        ),
+    )
+    create_investigation(
+        {},
+        runs.Investigation(
+            investigation_id="inv-done",
+            observed_agent_key=_DEFAULT_KEY,
+            status=runs.InvestigationStatus.DONE,
+        ),
+    )
+
+    body = client.post("/config").json()
+
+    assert body["ambient"] == {
+        "attached": True,
+        "scheduled_trigger_enabled": True,
+        "investigation_schedule": "0 4 * * *",
+        "update_trigger_enabled": True,
+        "observed_engine_id": "eng-42",
+    }
+    assert [
+        inv["investigation_id"] for inv in body["ongoing_investigations"]
+    ] == ["inv-scheduled", "inv-running"]
+    assert "ongoing_investigations_error" not in body
+
+
+def test_show_config_reports_null_ongoing_on_store_failure_without_failing_route(
+    client: TestClient, jobs_store: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _attach_default_agent(jobs_store)
+    monkeypatch.setattr(
+        runs,
+        "list_investigations",
+        mock.AsyncMock(
+            return_value={
+                "investigations": [],
+                "error": "failed to list investigations: Access Denied",
+            }
+        ),
+    )
+
+    response = client.post("/config")
+    body = response.json()
+
+    assert response.status_code == 200
+    assert "error" not in body
+    assert body["config"]["agent_key"] == _DEFAULT_KEY
+    assert body["ongoing_investigations"] is None
+    assert "Access Denied" in body["ongoing_investigations_error"]
 
 
 def test_malformed_body_is_rejected(

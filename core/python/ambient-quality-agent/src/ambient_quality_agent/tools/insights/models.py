@@ -251,6 +251,13 @@ class InsightOccurrence(BaseModel):
     `InvestigationTrajectory.trajectory_id` so readers can resolve source traces
     and full trajectory bundles."""
 
+    estimated_trajectory_count: float | None = None
+    """Trajectories of all traffic in the investigation's window that
+    `trajectory_ids` stand for: the sum of ``1 / p`` over them, where ``p`` is
+    each one's probability of being picked, scaled as the investigation's own
+    estimates are (`_sweep.compute_trajectories_represented`). ``None`` when a
+    trajectory's probability is unknown."""
+
     analyses: dict[str, ClusterVerification] = Field(default_factory=dict)
     """Analysis results keyed by step name (e.g. `VERIFICATION_ANALYSIS_KEY`).
     Empty when no analysis step ran on the cluster."""
@@ -271,6 +278,22 @@ class InsightView(Insight):
     """Sum of `InsightOccurrence.trajectory_count` across the insight's
     occurrences. A trajectory seen in multiple investigations is counted in
     each."""
+
+    estimated_trajectory_count: float | None = None
+    """Sum of `InsightOccurrence.estimated_trajectory_count` across the
+    occurrences that have one: the trajectories of all traffic the insight's
+    reviewed trajectories stand for. ``None`` when no occurrence has one."""
+
+    impact: float = 0.0
+    """The figure `reader.InsightOrder.IMPACT` ranks by
+    (`reader.compute_impact`): the occurrences' estimated trajectories, or
+    their trajectory counts where they have no estimate."""
+
+    estimated_share: float | None = None
+    """Estimated share of all conversations that show the insight
+    (`reader.compute_estimated_share`): from 0 to 1, unless overlapping
+    occurrences in one investigation push it higher. ``None`` when no
+    investigation it can be estimated from saw the insight."""
 
     last_investigation_id: str | None = None
     """`investigation_id` of the most recent occurrence."""

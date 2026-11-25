@@ -14,10 +14,18 @@
 
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { healthQuery, type AmbientVerdict } from "@/lib/aqua-api";
+import {
+  healthQuery,
+  type AmbientHealth,
+  type AmbientVerdict,
+} from "@/lib/aqua-api";
 import { stripMarkdownForSummary } from "@/lib/aqa-markdown";
 import { FailureNote } from "@/components/ui/failure-note";
+import { HelpPopover } from "@/components/ui/help-popover";
 import { formatCron } from "@/lib/cron";
+import { ESTIMATE_HELP } from "@/lib/estimates";
+import { POLL_INTERVAL_MS, renderOngoingNote } from "@/lib/investigation-state";
+import { formatInstant } from "@/lib/investigation-summary";
 import { textStyle } from "@/lib/typography";
 import { cn, formatSentenceCase } from "@/lib/utils";
 import { useAgentKey } from "@/lib/agent-selection";
@@ -43,6 +51,8 @@ function Cell({
   label,
   value,
   note,
+  help,
+  wrapNote = false,
   tone,
   to,
   params,
@@ -50,15 +60,30 @@ function Cell({
   label: string;
   value: string;
   note: string;
+  /** Explains the value behind a help button beside the label. Not for a cell
+   *  with `to`, since a button inside a link is invalid. */
+  help?: string;
+  /** Lets the note take a second line rather than cutting it short. */
+  wrapNote?: boolean;
   tone?: string;
   to?: string;
   params?: Record<string, string>;
 }) {
   const body = (
     <>
-      <p className={textStyle.label}>{label}</p>
+      <div className="flex items-center gap-1">
+        <p className={textStyle.label}>{label}</p>
+        {help && <HelpPopover topic={label}>{help}</HelpPopover>}
+      </div>
       <p className={cn(textStyle.pageTitle, "mt-1", tone)}>{value}</p>
-      <p className={cn(textStyle.meta, "mt-1 truncate")} title={note}>
+      <p
+        className={cn(
+          textStyle.meta,
+          "mt-1",
+          wrapNote ? "line-clamp-2" : "truncate",
+        )}
+        title={note}
+      >
         {note}
       </p>
     </>
@@ -82,6 +107,97 @@ function Cell({
   );
 }
 
+const formatPercent = (rate: number): string => `${Math.round(rate * 100)}%`;
+
+/** What the pass rate is a share of: the trajectories that reached a verdict,
+ *  and beside them the evaluations the eval service errored on. Those are no
+ *  judgement either way, so they stay out of the rate and are named alongside
+ *  it -- a sweep the reviewer model was unavailable for found nothing wrong
+ *  with the agent, and a note reading "0 of 50" would say it did.
+ *
+ *  An engine that predates those two counts sends neither, and its
+ *  `pass_rate` is a share of every evaluated trajectory; the note says so,
+ *  rather than pairing that engine's rate with a denominator it did not use.
+ *  An absent count is not a null one: a current engine sends null for a count
+ *  of zero, which the judged branch below reads. */
+function formatPassRateNote(
+  investigation: AmbientHealth["last_investigation"],
+): string {
+  const evaluated = investigation?.trajectories ?? 0;
+  if (!evaluated) return "No trajectories evaluated";
+  if (investigation?.trajectories_judged === undefined) {
+    const passed = investigation?.trajectories_passed ?? 0;
+    const unit = evaluated === 1 ? "trajectory" : "trajectories";
+    return `${passed} of ${evaluated} ${unit}`;
+  }
+  const judged = investigation.trajectories_judged ?? 0;
+  const errored = investigation.trajectories_errored ?? 0;
+  const errors = errored > 0 ? ` · ${errored} errored` : "";
+  if (!judged) return `No trajectory judged${errors}`;
+  return `${investigation.trajectories_passed ?? 0} of ${judged} judged${errors}`;
+}
+
+/** The latest investigation's pass rate: estimated for all traffic when the
+ *  investigation recorded estimates, with the sample it was estimated from
+ *  beneath; the sample's own rate otherwise. A weighted sample's rate
+ *  over-represents failures, so once there is an estimate it appears only in
+ *  the help. */
+function PassRateCell({
+  investigation,
+}: {
+  investigation: AmbientHealth["last_investigation"];
+}) {
+  const estimated = investigation?.estimated_pass_rate;
+  if (investigation && estimated != null) {
+    const reviewed = investigation.trajectories ?? 0;
+    const picked = investigation.trajectories_with_risk_signals ?? 0;
+    const scanned = investigation.trajectories_scanned;
+    const parts = [
+      // "Conversations" is left to the help: two lines of a quarter of the bar
+      // hold both figures only without it.
+      scanned != null
+        ? `Reviewed ${reviewed.toLocaleString()} of ${scanned.toLocaleString()}`
+        : `Reviewed ${reviewed.toLocaleString()}`,
+    ];
+    if (picked > 0) {
+      parts.push(`${picked.toLocaleString()} picked for risk signals`);
+    }
+    // The sample's rate is a share of the conversations that reached a
+    // verdict, which is fewer than the conversations reviewed once an
+    // evaluation errored. An engine that reports no judged count rated every
+    // conversation it reviewed.
+    const judged = investigation.trajectories_judged;
+    const rated =
+      judged === undefined
+        ? `The ${reviewed.toLocaleString()} conversations reviewed`
+        : `The ${(judged ?? 0).toLocaleString()} judged conversations`;
+    const sample =
+      investigation.pass_rate != null
+        ? ` ${rated} passed at ${formatPercent(investigation.pass_rate)}.`
+        : "";
+    return (
+      <Cell
+        label="Estimated pass rate"
+        value={formatPercent(estimated)}
+        help={`${ESTIMATE_HELP}${sample}`}
+        note={parts.join(" · ")}
+        wrapNote
+      />
+    );
+  }
+  return (
+    <Cell
+      label="Pass rate"
+      value={
+        investigation?.pass_rate != null
+          ? formatPercent(investigation.pass_rate)
+          : "--"
+      }
+      note={formatPassRateNote(investigation)}
+    />
+  );
+}
+
 /**
  * The homepage's first answer: is AQuA working, and what has it found.
  *
@@ -91,7 +207,14 @@ function Cell({
  */
 export function StatBar() {
   const agentKey = useAgentKey();
-  const { data, isLoading, error } = useQuery(healthQuery(agentKey));
+  const viewer = isViewerMode();
+  const { data, isLoading, error } = useQuery({
+    ...healthQuery(agentKey),
+    refetchInterval: (query) =>
+      !viewer && (query.state.data?.ongoing_investigations?.length ?? 0) > 0
+        ? POLL_INTERVAL_MS
+        : false,
+  });
 
   if (isLoading) {
     return (
@@ -121,9 +244,16 @@ export function StatBar() {
   };
   const investigation = data.last_investigation;
   const healthy = data.verdict === "watching";
-  // A read-only viewer shows a finished snapshot, which nothing is watching:
-  // the live ambient status and its schedule would read as current.
-  const viewer = isViewerMode();
+  const ongoingText = renderOngoingNote(
+    data.ongoing_investigations,
+    formatInstant,
+  );
+  const scheduleText = data.schedule ? formatCron(data.schedule) : null;
+  const ambientNote = ongoingText
+    ? scheduleText
+      ? `${ongoingText} · ${scheduleText}`
+      : ongoingText
+    : (scheduleText ?? data.reason);
 
   return (
     <section
@@ -138,25 +268,12 @@ export function StatBar() {
           label="Ambient"
           value={verdict.value}
           tone={verdict.tone}
-          note={data.schedule ? formatCron(data.schedule) : data.reason}
+          note={ambientNote}
           // Where the schedule is edited.
           to="/config"
         />
       )}
-      <Cell
-        label="Pass rate"
-        value={
-          investigation?.pass_rate != null
-            ? `${Math.round(investigation.pass_rate * 100)}%`
-            : "--"
-        }
-        note={
-          investigation?.trajectories_passed != null &&
-          investigation.trajectories != null
-            ? `${investigation.trajectories_passed} of ${investigation.trajectories} ${investigation.trajectories === 1 ? "trajectory" : "trajectories"}`
-            : "No trajectories evaluated"
-        }
-      />
+      <PassRateCell investigation={investigation} />
       <Cell
         label="Open insights"
         value={String(data.open_findings)}

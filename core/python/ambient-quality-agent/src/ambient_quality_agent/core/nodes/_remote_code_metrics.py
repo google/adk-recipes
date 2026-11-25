@@ -54,6 +54,7 @@ class RemoteCodeMetricEvaluation:
     """
 
     name = "remote_custom_metrics"
+    pending_count = 0
 
     @property
     def outcomes(self) -> dict[str, str]:

@@ -56,6 +56,8 @@ logger = logging.getLogger(__name__)
 class VertexEvaluation:
     """Scores each page with the eval service, for one metric scope."""
 
+    pending_count = 0
+
     def __init__(
         self, evaluator: Any, eval_metrics: Any, metric_type: MetricType
     ) -> None:

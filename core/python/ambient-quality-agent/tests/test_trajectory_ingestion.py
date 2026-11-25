@@ -133,6 +133,34 @@ def recorded_ingestion() -> tuple[list[Any], Any]:
     return recorder.records, fetcher.counts
 
 
+def test_every_attempted_row_reports_how_it_was_picked() -> None:
+    """Each row's probability is what lets a figure for all traffic count it,
+    so it is recorded with the row however ingestion went."""
+    recorder = FakeTrajectoryRecorder()
+    with mock.patch(
+        "ambient_quality_agent.tools.ingestion.base.bigquery.Client",
+        return_value=mock.MagicMock(),
+    ):
+        fetcher = BigQueryFetcher(
+            project_id="test-project",
+            dataset="analytics",
+            table="events",
+            location="us-central1",
+            recorder=recorder,
+        )
+    rows = [_session_row("a"), _session_row("b", usable=False)]
+    for row, probability in zip(rows, (0.5, 0.25), strict=True):
+        row["sampling"] = {"weight": 1.0, "inclusion_probability": probability}
+
+    fetcher._map_page(rows, MetricType.MULTI_TURN)
+    fetcher._recorder.flush()
+
+    assert [
+        (r.trajectory_id, r.sampling.inclusion_probability)
+        for r in recorder.records
+    ] == [("a", 0.5), ("b", 0.25)]
+
+
 def test_every_attempted_row_becomes_exactly_one_recorded_trajectory(
     recorded_ingestion: tuple[list[Any], Any],
 ) -> None:
@@ -232,7 +260,7 @@ def test_a_fetcher_built_without_a_recorder_still_works() -> None:
             project_id="p", dataset="d", table="t", location="us-central1"
         )
 
-    cases, _ = fetcher._map_page([_session_row("a")], MetricType.MULTI_TURN)
+    cases, _, _ = fetcher._map_page([_session_row("a")], MetricType.MULTI_TURN)
 
     assert len(cases) == 1
 
