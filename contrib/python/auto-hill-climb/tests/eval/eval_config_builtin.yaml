@@ -1,0 +1,5 @@
+# Example 1: built in judges that ship with Agents CLI, no code.
+# List them all with: agents-cli eval metric list
+metrics_to_run:
+  - MULTI_TURN_TASK_SUCCESS
+  - MULTI_TURN_TOOL_USE_QUALITY
