@@ -1,0 +1,447 @@
+IOC_Value,IOC_Type,IsMalicious,ThreatName,Confidence,LastSeen
+e45e214d23c21a1f59bd00c25a8123c89901d1a896d8f8d223a23722421b3070,SHA256,true,Mimikatz,Critical,2025-07-20
+89901d1a896d8f8d223a23722421b3070e45e214d23c21a1f59bd00c25a8123c,SHA256,true,Mimikatz,Critical,2025-07-20
+f975877f2d6b38c0a8809117646540c4af8121115b0580894582f3a4c0383d47,SHA256,true,Mimikatz,Critical,2025-07-20
+1f59bd00c25a8123c89901d1a896d8f8d223a23722421b3070e45e214d23c21a,SHA256,true,Mimikatz,Critical,2025-07-20
+8f8d223a23722421b3070e45e214d23c21a1f59bd00c25a8123c89901d1a896d,SHA256,true,Mimikatz,Critical,2025-07-20
+8123c89901d1a896d8f8d223a23722421b3070e45e214d23c21a1f59bd00c25a,SHA256,true,Mimikatz,Critical,2025-07-20
+223a23722421b3070e45e214d23c21a1f59bd00c25a8123c89901d1a896d8f8d,SHA256,true,Mimikatz,Critical,2025-07-20
+96d8f8d223a23722421b3070e45e214d23c21a1f59bd00c25a8123c89901d1a8,SHA256,true,Mimikatz,Critical,2025-07-20
+c89901d1a896d8f8d223a23722421b3070e45e214d23c21a1f59bd00c25a8123,SHA256,true,Mimikatz,Critical,2025-07-20
+d1a896d8f8d223a23722421b3070e45e214d23c21a1f59bd00c25a8123c89901,SHA256,true,Mimikatz,Critical,2025-07-20
+421b3070e45e214d23c21a1f59bd00c25a8123c89901d1a896d8f8d223a23722,SHA256,true,Mimikatz,Critical,2025-07-20
+f8d223a23722421b3070e45e214d23c21a1f59bd00c25a8123c89901d1a896d8,SHA256,true,Mimikatz,Critical,2025-07-20
+3a4c0383d47f975877f2d6b38c0a8809117646540c4af8121115b0580894582f,SHA256,true,Mimikatz,Critical,2025-07-21
+2d6b38c0a8809117646540c4af8121115b0580894582f3a4c0383d47f975877f,SHA256,true,Mimikatz,Critical,2025-07-21
+4c0383d47f975877f2d6b38c0a8809117646540c4af8121115b0580894582f3a,SHA256,true,Mimikatz,Critical,2025-07-21
+582f3a4c0383d47f975877f2d6b38c0a8809117646540c4af8121115b0580894,SHA256,true,Mimikatz,Critical,2025-07-21
+f0084f4787a270726d40cb97e556e4a2b0e6e7f22b8d2a85360f098048107921,SHA256,true,Mimikatz,Critical,2025-07-22
+cb97e556e4a2b0e6e7f22b8d2a85360f098048107921f0084f4787a270726d40,SHA256,true,Mimikatz,Critical,2025-07-22
+8.8.8.8,IP,false,KnownGood-GoogleDNS,High,2024-01-01
+1.1.1.1,IP,false,KnownGood-CloudflareDNS,High,2024-01-01
+1.0.0.1,IP,false,KnownGood-CloudflareDNS,High,2024-01-01
+8.8.4.4,IP,false,KnownGood-GoogleDNS,High,2024-01-01
+172.67.149.22,IP,false,KnownGood-Cloudflare,High,2024-02-01
+104.18.37.128,IP,false,KnownGood-Cloudflare,High,2024-02-02
+172.64.33.100,IP,false,KnownGood-Cloudflare,High,2024-02-03
+104.21.5.192,IP,false,KnownGood-Cloudflare,High,2024-02-04
+104.16.123.96,IP,false,KnownGood-Cloudflare,High,2024-02-05
+104.26.10.22,IP,false,KnownGood-Cloudflare,High,2024-02-06
+172.67.70.125,IP,false,KnownGood-Cloudflare,High,2024-02-07
+104.22.40.117,IP,false,KnownGood-Cloudflare,High,2024-02-08
+172.67.186.68,IP,false,KnownGood-Cloudflare,High,2024-02-09
+104.18.26.195,IP,false,KnownGood-Cloudflare,High,2024-02-10
+142.250.196.174,IP,false,KnownGood-Google,High,2024-03-03
+151.101.65.132,IP,false,KnownGood-Fastly,High,2024-04-01
+151.101.193.132,IP,false,KnownGood-Fastly,High,2024-04-02
+151.101.1.132,IP,false,KnownGood-Fastly,High,2024-04-03
+151.101.129.132,IP,false,KnownGood-Fastly,High,2024-04-04
+151.101.66.217,IP,false,KnownGood-Fastly,High,2024-04-05
+151.101.2.217,IP,false,KnownGood-Fastly,High,2024-04-06
+4b2d07611a56b0014022370604b68e0018a1a3674686b2454b868e4b85e03251,SHA256,false,KnownGood-Microsoft,High,2024-05-01
+018a1a3674686b2454b868e4b85e032514b2d07611a56b0014022370604b68e0,SHA256,false,KnownGood-Microsoft,High,2024-05-02
+b2454b868e4b85e032514b2d07611a56b0014022370604b68e0018a1a3674686,SHA256,false,KnownGood-Microsoft,High,2024-05-03
+b0014022370604b68e0018a1a3674686b2454b868e4b85e032514b2d07611a56,SHA256,false,KnownGood-Microsoft,High,2024-05-04
+604b68e0018a1a3674686b2454b868e4b85e032514b2d07611a56b0014022370,SHA256,false,KnownGood-Microsoft,High,2024-05-05
+4686b2454b868e4b85e032514b2d07611a56b0014022370604b68e0018a1a367,SHA256,false,KnownGood-Microsoft,High,2024-05-06
+8d02241696511a51a13fe39a567b3c23b28c2f47d8af6be9bd63e030e214dc89,SHA256,false,Benign,High,2024-08-15
+a46e37632fa6ca51a13fe39a567b3c23b28c2f47d8af6be9bd63e030e214ba38,SHA256,false,Benign,High,2024-08-27
+567b3c23b28c2f47d8af6be9bd63e030e214ba38a46e37632fa6ca51a13fe39a,SHA256,false,Benign,High,2024-08-28
+e9bd63e030e214ba38a46e37632fa6ca51a13fe39a567b3c23b28c2f47d8af6b,SHA256,false,Benign,High,2024-08-29
+2f47d8af6be9bd63e030e214ba38a46e37632fa6ca51a13fe39a567b3c23b28c,SHA256,false,Benign,High,2024-08-30
+b28c2f47d8af6be9bd63e030e214ba38a46e37632fa6ca51a13fe39a567b3c23,SHA256,false,Benign,High,2024-08-31
+3c23b28c2f47d8af6be9bd63e030e214ba38a46e37632fa6ca51a13fe39a567b,SHA256,false,Benign,High,2024-09-01
+47d8af6be9bd63e030e214ba38a46e37632fa6ca51a13fe39a567b3c23b28c2f,SHA256,false,Benign,High,2024-09-02
+7d8af6be9bd63e030e214ba38a46e37632fa6ca51a13fe39a567b3c23b28c2f4,SHA256,false,Benign,High,2024-09-03
+13fe39a567b3c23b28c2f47d8af6be9bd63e030e214ba38a46e37632fa6ca51a,SHA256,false,Benign,High,2024-09-04
+6be9bd63e030e214ba38a46e37632fa6ca51a13fe39a567b3c23b28c2f47d8af,SHA256,false,Benign,High,2024-09-05
+51a13fe39a567b3c23b28c2f47d8af6be9bd63e030e214ba38a46e37632fa6ca,SHA256,false,Benign,High,2024-09-06
+d8af6be9bd63e030e214ba38a46e37632fa6ca51a13fe39a567b3c23b28c2f47,SHA256,false,Benign,High,2024-09-07
+fa6ca51a13fe39a567b3c23b28c2f47d8af6be9bd63e030e214ba38a46e37632,SHA256,false,Benign,High,2024-09-08
+7632fa6ca51a13fe39a567b3c23b28c2f47d8af6be9bd63e030e214ba38a46e37,SHA256,false,Benign,High,2024-09-09
+9a567b3c23b28c2f47d8af6be9bd63e030e214ba38a46e37632fa6ca51a13fe3,SHA256,false,Benign,High,2024-09-10
+c2f47d8af6be9bd63e030e214ba38a46e37632fa6ca51a13fe39a567b3c23b28,SHA256,false,Benign,High,2024-09-11
+32fa6ca51a13fe39a567b3c23b28c2f47d8af6be9bd63e030e214ba38a46e376,SHA256,false,Benign,High,2024-09-12
+a6ca51a13fe39a567b3c23b28c2f47d8af6be9bd63e030e214ba38a46e37632f,SHA256,false,Benign,High,2024-09-13
+a13fe39a567b3c23b28c2f47d8af6be9bd63e030e214ba38a46e37632fa6ca51,SHA256,false,Benign,High,2024-09-14
+567b3c23b28c2f47d8af6be9bd63e030e214ba38a46e37632fa6ca51a13fe39a,SHA256,false,Benign,High,2024-09-15
+bd63e030e214ba38a46e37632fa6ca51a13fe39a567b3c23b28c2f47d8af6be9,SHA256,false,Benign,High,2024-09-16
+8af6be9bd63e030e214ba38a46e37632fa6ca51a13fe39a567b3c23b28c2f47d,SHA256,false,Benign,High,2024-09-17
+c23b28c2f47d8af6be9bd63e030e214ba38a46e37632fa6ca51a13fe39a567b3,SHA256,false,Benign,High,2024-09-18
+46e37632fa6ca51a13fe39a567b3c23b28c2f47d8af6be9bd63e030e214ba38a4,SHA256,false,Benign,High,2024-09-19
+632fa6ca51a13fe39a567b3c23b28c2f47d8af6be9bd63e030e214ba38a46e376,SHA256,false,Benign,High,2024-09-20
+e030e214ba38a46e37632fa6ca51a13fe39a567b3c23b28c2f47d8af6be9bd63,SHA256,false,Benign,High,2024-09-21
+e214ba38a46e37632fa6ca51a13fe39a567b3c23b28c2f47d8af6be9bd63e030,SHA256,false,Benign,High,2024-09-22
+b3c23b28c2f47d8af6be9bd63e030e214ba38a46e37632fa6ca51a13fe39a567,SHA256,false,Benign,High,2024-09-23
+bad-actor-drop.net,DOMAIN,true,Emotet,High,2025-08-15
+corp-file-access.com,DOMAIN,true,Emotet,High,2025-08-15
+payment-confirmation-doc.com,DOMAIN,true,Emotet,High,2025-08-15
+payroll-update-required.com,DOMAIN,true,Emotet,High,2025-08-15
+office36o.com,DOMAIN,true,Emotet,High,2025-08-16
+invoice-document-share.com,DOMAIN,true,Emotet,High,2025-08-16
+scanned-document-portal.com,DOMAIN,true,Emotet,High,2025-08-16
+unusual-login-activity.com,DOMAIN,true,Emotet,High,2025-08-16
+package-delivery-failed.com,DOMAIN,true,Emotet,High,2025-08-17
+urgent-doc-review.com,DOMAIN,true,Emotet,High,2025-08-17
+your-doc-is-ready.com,DOMAIN,true,Emotet,High,2025-08-17
+verify-your-account.biz,DOMAIN,true,Emotet,High,2025-08-18
+critical-security-patch.org,DOMAIN,true,Emotet,High,2025-08-18
+important-file-share.net,DOMAIN,true,Emotet,High,2025-08-18
+document-shared-with-you.net,DOMAIN,true,Emotet,High,2025-08-18
+new-invoice-attached.com,DOMAIN,true,Emotet,High,2025-08-19
+doc-collab-portal.com,DOMAIN,true,Emotet,High,2025-08-19
+shared-invoice-view.com,DOMAIN,true,Emotet,High,2025-08-20
+security-alert-center.org,DOMAIN,true,Emotet,High,2025-08-21
+important-message-portal.com,DOMAIN,true,Emotet,High,2025-08-21
+ms-teams-update.net,DOMAIN,true,RedLine Stealer,High,2025-08-22
+it-helpdesk-support.com,DOMAIN,true,RedLine Stealer,High,2025-08-22
+new-corp-policy.net,DOMAIN,true,RedLine Stealer,High,2025-08-22
+your-package-tracking.info,DOMAIN,true,RedLine Stealer,High,2025-08-23
+okta-verify-session.com,DOMAIN,true,RedLine Stealer,High,2025-08-23
+azure-login-portal.net,DOMAIN,true,RedLine Stealer,High,2025-08-23
+account-support-team.net,DOMAIN,true,RedLine Stealer,High,2025-08-23
+it-support-desk.net,DOMAIN,true,RedLine Stealer,High,2025-08-24
+hr-survey-company.com,DOMAIN,true,RedLine Stealer,High,2025-08-24
+secure-auth-system.org,DOMAIN,true,RedLine Stealer,High,2025-08-24
+sharepoint-access-grant.com,DOMAIN,true,RedLine Stealer,High,2025-08-24
+urgent-payment-request.biz,DOMAIN,true,RedLine Stealer,High,2025-08-25
+rewards-program-claim.com,DOMAIN,true,RedLine Stealer,High,2025-08-25
+online-banking-portal.biz,DOMAIN,true,RedLine Stealer,High,2025-08-25
+vpn-client-update.net,DOMAIN,true,RedLine Stealer,High,2025-08-26
+tech-support-alert.org,DOMAIN,true,RedLine Stealer,High,2025-08-26
+company-survey-portal.net,DOMAIN,true,RedLine Stealer,High,2025-08-26
+account-services-intl.com,DOMAIN,true,RedLine Stealer,High,2025-08-27
+company-vpn-access.org,DOMAIN,true,RedLine Stealer,High,2025-08-27
+update-browser-now.org,DOMAIN,true,RedLine Stealer,High,2025-08-27
+update-adobe-flash.net,DOMAIN,true,Emotet,High,2025-09-01
+4a0a9a8d9a9a5f7f3a06b0d9c4c4f3d2a7f5b8a6a6a4d3a1f9e6a1e2c8a7f7d,SHA256,true,WizzySpiderDropper,High,2025-09-01
+official-doc-download.net,DOMAIN,true,WizzySpiderDropper,High,2025-09-01
+secure-package-download.com,DOMAIN,true,WizzySpiderDropper,High,2025-09-01
+a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2,SHA256,true,WizzySpiderDropper,High,2025-09-02
+1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c,SHA256,true,WizzySpiderDropper,High,2025-09-02
+2c8a7f7d4a0a9a8d9a9a5f7f3a06b0d9c4c4f3d2a7f5b8a6a6a4d3a1f9e6a1e,SHA256,true,WizzySpiderDropper,High,2025-09-02
+c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2c3d4e5f6a7b8,SHA256,true,WizzySpiderDropper,High,2025-09-02
+d2e3f4a5b6c7d8e9f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1,SHA256,true,WizzySpiderDropper,High,2025-09-02
+b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2c3d4e5f6a7,SHA256,true,WizzySpiderDropper,High,2025-09-02
+b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9,SHA256,true,WizzySpiderDropper,High,2025-09-02
+4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2c3d,SHA256,true,WizzySpiderDropper,High,2025-09-02
+f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7,SHA256,true,WizzySpiderDropper,High,2025-09-02
+c7d8e9f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6,SHA256,true,WizzySpiderDropper,High,2025-09-02
+d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2c3,SHA256,true,WizzySpiderDropper,High,2025-09-02
+f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9,SHA256,true,WizzySpiderDropper,High,2025-09-02
+f4a5b6c7d8e9f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3,SHA256,true,WizzySpiderDropper,High,2025-09-02
+d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2c3d4e5f6a7b8c9,SHA256,true,WizzySpiderDropper,High,2025-09-02
+c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2,SHA256,true,WizzySpiderDropper,High,2025-09-02
+e3f4a5b6c7d8e9f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2,SHA256,true,WizzySpiderDropper,High,2025-09-02
+b6c7d8e9f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5,SHA256,true,WizzySpiderDropper,High,2025-09-02
+e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6,SHA256,true,WizzySpiderDropper,High,2025-09-02
+c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2c3d4e5f6a7b8,SHA256,true,WizzySpiderDropper,High,2025-09-02
+f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9,SHA256,true,WizzySpiderDropper,High,2025-09-02
+c7d8e9f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6,SHA256,true,WizzySpiderDropper,High,2025-09-02
+f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7,SHA256,true,WizzySpiderDropper,High,2025-09-02
+b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2c3d4e5f6a7,SHA256,true,WizzySpiderDropper,High,2025-09-02
+b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9,SHA256,true,WizzySpiderDropper,High,2025-09-02
+d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2c3,SHA256,true,WizzySpiderDropper,High,2025-09-02
+c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2,SHA256,true,WizzySpiderDropper,High,2025-09-02
+d8e9f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7,SHA256,true,WizzySpiderDropper,High,2025-09-02
+4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1b2c3d,SHA256,true,WizzySpiderDropper,High,2025-09-02
+e9f0a1b2a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8,SHA256,true,WizzySpiderDropper,High,2025-09-02
+b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2a1,SHA256,true,WizzySpiderDropper,High,2025-09-02
+installer-v12.exe.info,DOMAIN,true,WizzySpiderDropper,High,2025-09-03
+windows-patch-dl.com,DOMAIN,true,WizzySpiderDropper,High,2025-09-03
+file-downloader-srv.com,DOMAIN,true,WizzySpiderDropper,High,2025-09-03
+6c95a557b44f6f7c11f62111d3840610998f980e0c83a051838971f4b752bc7f,SHA256,true,WizzySpiderDropper,High,2025-09-04
+hr-portal-login.net,DOMAIN,true,RedLine Stealer,High,2025-09-04
+software-patch-dl.org,DOMAIN,true,WizzySpiderDropper,High,2025-09-04
+patch-installer-srv.com,DOMAIN,true,WizzySpiderDropper,High,2025-09-04
+dropbox-file-share.org,DOMAIN,true,WizzySpiderDropper,High,2025-09-04
+login-microsft.com,DOMAIN,true,RedLine Stealer,High,2025-09-05
+b44f6f7c11f62111d3840610998f980e0c83a051838971f4b752bc7f6c95a557,SHA256,true,WizzySpiderDropper,High,2025-09-05
+required-action-portal.org,DOMAIN,true,WizzySpiderDropper,High,2025-09-05
+e0c83a051838971f4b752bc7f6c95a557b44f6f7c11f62111d3840610998f980,SHA256,true,WizzySpiderDropper,High,2025-09-05
+f4b752bc7f6c95a557b44f6f7c11f62111d3840610998f980e0c83a051838971,SHA256,true,WizzySpiderDropper,High,2025-09-05
+d3840610998f980e0c83a051838971f4b752bc7f6c95a557b44f6f7c11f62111,SHA256,true,WizzySpiderDropper,High,2025-09-05
+corporate-file-transfer.com,DOMAIN,true,WizzySpiderDropper,High,2025-09-05
+f6f7c11f62111d3840610998f980e0c83a051838971f4b752bc7f6c95a557b44,SHA256,true,WizzySpiderDropper,High,2025-09-05
+838971f4b752bc7f6c95a557b44f6f7c11f62111d3840610998f980e0c83a051,SHA256,true,WizzySpiderDropper,High,2025-09-05
+0c83a051838971f4b752bc7f6c95a557b44f6f7c11f62111d3840610998f980e,SHA256,true,WizzySpiderDropper,High,2025-09-05
+bank-security-check.com,DOMAIN,true,RedLine Stealer,High,2025-09-06
+secure-payment-gateway.biz,DOMAIN,true,Mimikatz,High,2025-09-07
+admin-portal-access.net,DOMAIN,true,Mimikatz,High,2025-09-07
+account-verification-system.com,DOMAIN,true,Mimikatz,High,2025-09-07
+login-session-expired.net,DOMAIN,true,Mimikatz,High,2025-09-07
+2a85360f098048107921f0084f4787a270726d40cb97e556e4a2b0e6e7f22b8d,SHA256,true,LockbitC2,High,2025-09-08
+password-reset-portal.org,DOMAIN,true,Mimikatz,High,2025-09-08
+auth-portal-secure.net,DOMAIN,true,Mimikatz,High,2025-09-08
+sso-portal-login.com,DOMAIN,true,Mimikatz,High,2025-09-08
+confirm-your-identity.com,DOMAIN,true,Mimikatz,High,2025-09-08
+c2-backup-server.org,DOMAIN,true,Cobalt Strike C2,High,2025-09-09
+c2-main-controller.org,DOMAIN,true,Cobalt Strike C2,High,2025-09-09
+c2-fallback.net,DOMAIN,true,Cobalt Strike C2,High,2025-09-09
+198.51.100.42,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.43,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.44,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.45,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.46,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.47,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.48,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.49,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.50,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.51,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.52,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.53,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.54,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.55,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.56,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.57,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.58,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.59,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.60,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.61,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.62,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.63,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.64,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.65,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.66,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.67,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.68,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.69,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.70,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.71,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.72,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.73,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.74,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.75,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.76,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.77,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.78,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.79,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.80,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.81,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.82,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.83,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.84,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.85,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.86,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.87,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.88,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.89,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.90,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.91,IP,true,Cobalt Strike C2,High,2025-09-10
+198.51.100.92,IP,true,Cobalt Strike C2,High,2025-09-10
+45.146.164.110,IP,true,LockbitC2,High,2025-09-11
+45.146.164.111,IP,true,LockbitC2,High,2025-09-11
+45.146.164.112,IP,true,LockbitC2,High,2025-09-11
+45.146.164.113,IP,true,LockbitC2,High,2025-09-11
+45.146.164.114,IP,true,LockbitC2,High,2025-09-11
+45.146.164.115,IP,true,LockbitC2,High,2025-09-11
+45.146.164.116,IP,true,LockbitC2,High,2025-09-11
+45.146.164.117,IP,true,LockbitC2,High,2025-09-11
+45.146.164.118,IP,true,LockbitC2,High,2025-09-11
+45.146.164.119,IP,true,LockbitC2,High,2025-09-11
+45.146.164.120,IP,true,LockbitC2,High,2025-09-11
+45.146.164.121,IP,true,LockbitC2,High,2025-09-11
+45.146.164.122,IP,true,LockbitC2,High,2025-09-11
+45.146.164.123,IP,true,LockbitC2,High,2025-09-11
+45.146.164.124,IP,true,LockbitC2,High,2025-09-11
+45.146.164.125,IP,true,LockbitC2,High,2025-09-11
+45.146.164.126,IP,true,LockbitC2,High,2025-09-11
+45.146.164.127,IP,true,LockbitC2,High,2025-09-11
+45.146.164.128,IP,true,LockbitC2,High,2025-09-11
+45.146.164.129,IP,true,LockbitC2,High,2025-09-11
+45.146.164.130,IP,true,LockbitC2,High,2025-09-11
+45.146.164.131,IP,true,LockbitC2,High,2025-09-11
+45.146.164.132,IP,true,LockbitC2,High,2025-09-11
+45.146.164.133,IP,true,LockbitC2,High,2025-09-11
+45.146.164.134,IP,true,LockbitC2,High,2025-09-11
+45.146.164.135,IP,true,LockbitC2,High,2025-09-11
+45.146.164.136,IP,true,LockbitC2,High,2025-09-11
+45.146.164.137,IP,true,LockbitC2,High,2025-09-11
+45.146.164.138,IP,true,LockbitC2,High,2025-09-11
+45.146.164.139,IP,true,LockbitC2,High,2025-09-11
+45.146.164.140,IP,true,LockbitC2,High,2025-09-11
+45.146.164.141,IP,true,LockbitC2,High,2025-09-11
+45.146.164.142,IP,true,LockbitC2,High,2025-09-11
+45.146.164.143,IP,true,LockbitC2,High,2025-09-11
+45.146.164.144,IP,true,LockbitC2,High,2025-09-11
+45.146.164.145,IP,true,LockbitC2,High,2025-09-11
+45.146.164.146,IP,true,LockbitC2,High,2025-09-11
+45.146.164.147,IP,true,LockbitC2,High,2025-09-11
+45.146.164.148,IP,true,LockbitC2,High,2025-09-11
+45.146.164.149,IP,true,LockbitC2,High,2025-09-11
+45.146.164.150,IP,true,LockbitC2,High,2025-09-11
+45.146.164.151,IP,true,LockbitC2,High,2025-09-11
+45.146.164.152,IP,true,LockbitC2,High,2025-09-11
+45.146.164.153,IP,true,LockbitC2,High,2025-09-11
+45.146.164.154,IP,true,LockbitC2,High,2025-09-11
+45.146.164.155,IP,true,LockbitC2,High,2025-09-11
+45.146.164.156,IP,true,LockbitC2,High,2025-09-11
+45.146.164.157,IP,true,LockbitC2,High,2025-09-11
+45.146.164.158,IP,true,LockbitC2,High,2025-09-11
+45.146.164.159,IP,true,LockbitC2,High,2025-09-11
+45.146.164.160,IP,true,LockbitC2,High,2025-09-11
+91.219.29.100,IP,true,LockbitC2,High,2025-09-12
+91.219.29.101,IP,true,LockbitC2,High,2025-09-12
+91.219.29.102,IP,true,LockbitC2,High,2025-09-12
+91.219.29.103,IP,true,LockbitC2,High,2025-09-12
+91.219.29.104,IP,true,LockbitC2,High,2025-09-12
+91.219.29.105,IP,true,LockbitC2,High,2025-09-12
+91.219.29.106,IP,true,LockbitC2,High,2025-09-12
+91.219.29.107,IP,true,LockbitC2,High,2025-09-12
+91.219.29.108,IP,true,LockbitC2,High,2025-09-12
+91.219.29.109,IP,true,LockbitC2,High,2025-09-12
+91.219.29.110,IP,true,LockbitC2,High,2025-09-12
+91.219.29.111,IP,true,LockbitC2,High,2025-09-12
+91.219.29.112,IP,true,LockbitC2,High,2025-09-12
+91.219.29.113,IP,true,LockbitC2,High,2025-09-12
+91.219.29.114,IP,true,LockbitC2,High,2025-09-12
+91.219.29.115,IP,true,LockbitC2,High,2025-09-12
+91.219.29.116,IP,true,LockbitC2,High,2025-09-12
+91.219.29.117,IP,true,LockbitC2,High,2025-09-12
+91.219.29.118,IP,true,LockbitC2,High,2025-09-12
+91.219.29.119,IP,true,LockbitC2,High,2025-09-12
+91.219.29.120,IP,true,LockbitC2,High,2025-09-12
+91.219.29.121,IP,true,LockbitC2,High,2025-09-12
+91.219.29.122,IP,true,LockbitC2,High,2025-09-12
+91.219.29.123,IP,true,LockbitC2,High,2025-09-12
+91.219.29.124,IP,true,LockbitC2,High,2025-09-12
+91.219.29.125,IP,true,LockbitC2,High,2025-09-12
+91.219.29.126,IP,true,LockbitC2,High,2025-09-12
+91.219.29.127,IP,true,LockbitC2,High,2025-09-12
+91.219.29.128,IP,true,LockbitC2,High,2025-09-12
+91.219.29.129,IP,true,LockbitC2,High,2025-09-12
+91.219.29.130,IP,true,LockbitC2,High,2025-09-12
+91.219.29.131,IP,true,LockbitC2,High,2025-09-12
+91.219.29.132,IP,true,LockbitC2,High,2025-09-12
+91.219.29.133,IP,true,LockbitC2,High,2025-09-12
+91.219.29.134,IP,true,LockbitC2,High,2025-09-12
+91.219.29.135,IP,true,LockbitC2,High,2025-09-12
+91.219.29.136,IP,true,LockbitC2,High,2025-09-12
+91.219.29.137,IP,true,LockbitC2,High,2025-09-12
+91.219.29.138,IP,true,LockbitC2,High,2025-09-12
+91.219.29.139,IP,true,LockbitC2,High,2025-09-12
+91.219.29.140,IP,true,LockbitC2,High,2025-09-12
+91.219.29.141,IP,true,LockbitC2,High,2025-09-12
+91.219.29.142,IP,true,LockbitC2,High,2025-09-12
+91.219.29.143,IP,true,LockbitC2,High,2025-09-12
+91.219.29.144,IP,true,LockbitC2,High,2025-09-12
+91.219.29.145,IP,true,LockbitC2,High,2025-09-12
+91.219.29.146,IP,true,LockbitC2,High,2025-09-12
+91.219.29.147,IP,true,LockbitC2,High,2025-09-12
+91.219.29.148,IP,true,LockbitC2,High,2025-09-12
+91.219.29.149,IP,true,LockbitC2,High,2025-09-12
+91.219.29.150,IP,true,LockbitC2,High,2025-09-12
+159.65.92.208,IP,false,KnownGood-DigitalOcean,Medium,2024-07-07
+145.98.167.194,IP,false,Benign,Medium,2024-08-29
+192.0.2.10,IP,false,Benign-Scanner,Medium,2024-09-01
+192.0.2.11,IP,false,Benign-Scanner,Medium,2024-09-02
+192.0.2.12,IP,false,Benign-Scanner,Medium,2024-09-03
+192.0.2.13,IP,false,Benign-Scanner,Medium,2024-09-04
+192.0.2.14,IP,false,Benign-Scanner,Medium,2024-09-05
+192.0.2.15,IP,false,Benign-Scanner,Medium,2024-09-06
+192.0.2.16,IP,false,Benign-Scanner,Medium,2024-09-07
+192.0.2.17,IP,false,Benign-Scanner,Medium,2024-09-08
+192.0.2.18,IP,false,Benign-Scanner,Medium,2024-09-09
+192.0.2.19,IP,false,Benign-Scanner,Medium,2024-09-10
+192.0.2.20,IP,false,Benign-Scanner,Medium,2024-09-11
+138.68.167.100,IP,false,Benign-Scanner,Medium,2024-09-15
+web-analytics-data.net,DOMAIN,false,Benign-Scanner,Medium,2024-09-16
+ad-tracker-data.net,DOMAIN,false,Benign-Scanner,Medium,2024-09-17
+ad-content-delivery.org,DOMAIN,false,Benign-Scanner,Medium,2024-09-18
+suspicious-site-149.com,DOMAIN,false,Benign,Medium,2024-10-31
+8.248.118.254,IP,false,Benign,Medium,2024-11-01
+payload-drop-here.info,DOMAIN,true,Emotet,Medium,2025-08-17
+get-your-prize-now.com,DOMAIN,true,Emotet,Medium,2025-08-19
+shared-doc-collab.com,DOMAIN,true,Emotet,Medium,2025-08-20
+secure-document-view.net,DOMAIN,true,Emotet,Medium,2025-08-20
+email-quarantine-release.com,DOMAIN,true,Emotet,Medium,2025-08-21
+f8121115b0580894582f3a4c0383d47f975877f2d6b38c0a8809117646540c4a,SHA256,true,RedLine Stealer,Medium,2025-08-22
+data-miner-pool.net,DOMAIN,true,CoinMiner,Medium,2025-08-28
+get-crypto-free.org,DOMAIN,true,CoinMiner,Medium,2025-08-28
+crypto-pool-data.net,DOMAIN,true,CoinMiner,Medium,2025-08-28
+xmr-pool-connect.net,DOMAIN,true,CoinMiner,Medium,2025-08-28
+188.166.174.60,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.61,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.62,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.63,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.64,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.65,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.66,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.67,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.68,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.69,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.70,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.71,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.72,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.73,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.74,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.75,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.76,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.77,IP,true,CoinMiner,Medium,2025-08-29
+crypto-wallet-sync.com,DOMAIN,true,CoinMiner,Medium,2025-08-29
+188.166.174.78,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.79,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.80,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.81,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.82,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.83,IP,true,CoinMiner,Medium,2025-08-29
+188.166.174.84,IP,true,CoinMiner,Medium,2025-08-29
+185.125.190.22,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.23,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.24,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.25,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.26,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.27,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.28,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.29,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.30,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.31,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.32,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.33,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.34,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.35,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.36,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.37,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.38,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.39,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.40,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.41,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.42,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.43,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.44,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.45,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.46,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.47,IP,true,CoinMiner,Medium,2025-08-30
+185.125.190.48,IP,true,CoinMiner,Medium,2025-08-30
+crypto-reward-pool.com,DOMAIN,true,CoinMiner,Medium,2025-08-31
+pool-miner-us.net,DOMAIN,true,CoinMiner,Medium,2025-08-31
+data-collection-pool.org,DOMAIN,true,CoinMiner,Medium,2025-09-01
+miner-connect-eu.com,DOMAIN,true,CoinMiner,Medium,2025-09-01
+mining-cluster-42.com,DOMAIN,true,CoinMiner,Medium,2025-09-02
+d9a9a5f7f3a06b0d9c4c4f3d2a7f5b8a6a6a4d3a1f9e6a1e2c8a7f7d4a0a9a8,SHA256,true,WizzySpiderDropper,Medium,2025-09-03
+new-voice-message.net,DOMAIN,true,WizzySpiderDropper,Medium,2025-09-03
+6a6a4d3a1f9e6a1e2c8a7f7d4a0a9a8d9a9a5f7f3a06b0d9c4c4f3d2a7f5b8a,SHA256,true,WizzySpiderDropper,Medium,2025-09-03
+e2c8a7f7d4a0a9a8d9a9a5f7f3a06b0d9c4c4f3d2a7f5b8a6a6a4d3a1f9e6a1,SHA256,true,WizzySpiderDropper,Medium,2025-09-03
+1e2c8a7f7d4a0a9a8d9a9a5f7f3a06b0d9c4c4f3d2a7f5b8a6a6a4d3a1f9e6a,SHA256,true,WizzySpiderDropper,Medium,2025-09-03
+f3a06b0d9c4c4f3d2a7f5b8a6a6a4d3a1f9e6a1e2c8a7f7d4a0a9a8d9a9a5f7,SHA256,true,WizzySpiderDropper,Medium,2025-09-03
+d2a7f5b8a6a6a4d3a1f9e6a1e2c8a7f7d4a0a9a8d9a9a5f7f3a06b0d9c4c4f3,SHA256,true,WizzySpiderDropper,Medium,2025-09-03
+scanned-invoice-attach.org,DOMAIN,true,WizzySpiderDropper,Medium,2025-09-03
+b8a6a6a4d3a1f9e6a1e2c8a7f7d4a0a9a8d9a9a5f7f3a06b0d9c4c4f3d2a7f5,SHA256,true,WizzySpiderDropper,Medium,2025-09-03
+d9c4c4f3d2a7f5b8a6a6a4d3a1f9e6a1e2c8a7f7d4a0a9a8d9a9a5f7f3a06b0,SHA256,true,WizzySpiderDropper,Medium,2025-09-03
+a1f9e6a1e2c8a7f7d4a0a9a8d9a9a5f7f3a06b0d9c4c4f3d2a7f5b8a6a6a4d3,SHA256,true,WizzySpiderDropper,Medium,2025-09-03
+file-share-document.com,DOMAIN,true,WizzySpiderDropper,Medium,2025-09-04
+sharepoint-docs-online.net,DOMAIN,true,WizzySpiderDropper,Medium,2025-09-04
+203.0.113.55,IP,true,TorpigScanner,Medium,2025-09-13
+203.0.113.57,IP,true,TorpigScanner,Medium,2025-09-13
+203.0.113.58,IP,true,TorpigScanner,Medium,2025-09-13
+203.0.113.59,IP,true,TorpigScanner,Medium,2025-09-13
+203.0.113.60,IP,true,TorpigScanner,Medium,2025-09-13
+203.0.113.61,IP,true,TorpigScanner,Medium,2025-09-13
+203.0.113.62,IP,true,TorpigScanner,Medium,2025-09-13
+203.0.113.63,IP,true,TorpigScanner,Medium,2025-09-13
+203.0.113.64,IP,true,TorpigScanner,Medium,2025-09-13
+203.0.113.65,IP,true,TorpigScanner,Medium,2025-09-13
+203.0.113.66,IP,true,TorpigScanner,Medium,2025-09-13
+203.0.113.67,IP,true,TorpigScanner,Medium,2025-09-13
+103.28.121.5,IP,true,TorpigScanner,Medium,2025-09-14
+203.0.113.56,IP,true,TorpigScanner,Medium,2025-09-14

@@ -1,0 +1,611 @@
+Hostname,IPAddress,OS,AssetType,Owner,BusinessCriticality
+linapp0126,10.50.5.35,RHEL 9,Server,Core-Infra,Critical
+linapp0131,10.50.5.40,RHEL 9,Server,Core-Infra,Critical
+linapp0144,10.50.5.53,RHEL 9,Server,Core-Infra,Critical
+linapp0156,10.50.5.65,RHEL 9,Server,Core-Infra,Critical
+linapp0121,10.50.5.30,RHEL 9,Server,Core-Infra,Critical
+linapp0149,10.50.5.58,RHEL 9,Server,Core-Infra,Critical
+linapp0139,10.50.5.48,RHEL 9,Server,Core-Infra,Critical
+linapp0159,10.50.5.68,RHEL 9,Server,Core-Infra,Critical
+linapp0112,10.50.5.21,RHEL 9,Server,Core-Infra,Critical
+linapp0130,10.50.5.39,RHEL 9,Server,Core-Infra,Critical
+linapp0138,10.50.5.47,RHEL 9,Server,Core-Infra,Critical
+linapp0161,10.50.5.70,RHEL 9,Server,Core-Infra,Critical
+linapp0134,10.50.5.43,RHEL 9,Server,Core-Infra,Critical
+linapp0157,10.50.5.66,RHEL 9,Server,Core-Infra,Critical
+linapp0117,10.50.5.26,RHEL 9,Server,Core-Infra,Critical
+linapp0141,10.50.5.50,RHEL 9,Server,Core-Infra,Critical
+linapp0160,10.50.5.69,RHEL 9,Server,Core-Infra,Critical
+linapp0110,10.50.5.19,RHEL 9,Server,Core-Infra,Critical
+linapp0120,10.50.5.29,RHEL 9,Server,Core-Infra,Critical
+linapp0111,10.50.5.20,RHEL 9,Server,Core-Infra,Critical
+linapp0124,10.50.5.33,RHEL 9,Server,Core-Infra,Critical
+linapp0122,10.50.5.31,RHEL 9,Server,Core-Infra,Critical
+linapp0127,10.50.5.36,RHEL 9,Server,Core-Infra,Critical
+linapp0136,10.50.5.45,RHEL 9,Server,Core-Infra,Critical
+linapp0162,10.50.5.71,RHEL 9,Server,Core-Infra,Critical
+linapp0109,10.50.5.18,RHEL 9,Server,Core-Infra,Critical
+linapp0101,10.50.5.10,RHEL 9,Server,Core-Infra,Critical
+linapp0118,10.50.5.27,RHEL 9,Server,Core-Infra,Critical
+linapp0146,10.50.5.55,RHEL 9,Server,Core-Infra,Critical
+linapp0151,10.50.5.60,RHEL 9,Server,Core-Infra,Critical
+linapp0150,10.50.5.59,RHEL 9,Server,Core-Infra,Critical
+linapp0104,10.50.5.13,RHEL 9,Server,Core-Infra,Critical
+linapp0129,10.50.5.38,RHEL 9,Server,Core-Infra,Critical
+linapp0153,10.50.5.62,RHEL 9,Server,Core-Infra,Critical
+linapp0155,10.50.5.64,RHEL 9,Server,Core-Infra,Critical
+linapp0142,10.50.5.51,RHEL 9,Server,Core-Infra,Critical
+linapp0143,10.50.5.52,RHEL 9,Server,Core-Infra,Critical
+linapp0106,10.50.5.15,RHEL 9,Server,Core-Infra,Critical
+linapp0114,10.50.5.23,RHEL 9,Server,Core-Infra,Critical
+linapp0137,10.50.5.46,RHEL 9,Server,Core-Infra,Critical
+linapp0113,10.50.5.22,RHEL 9,Server,Core-Infra,Critical
+linapp0125,10.50.5.34,RHEL 9,Server,Core-Infra,Critical
+linapp0154,10.50.5.63,RHEL 9,Server,Core-Infra,Critical
+linapp0108,10.50.5.17,RHEL 9,Server,Core-Infra,Critical
+linapp0135,10.50.5.44,RHEL 9,Server,Core-Infra,Critical
+linapp0102,10.50.5.11,RHEL 9,Server,Core-Infra,Critical
+linapp0140,10.50.5.49,RHEL 9,Server,Core-Infra,Critical
+linapp0148,10.50.5.57,RHEL 9,Server,Core-Infra,Critical
+linapp0123,10.50.5.32,RHEL 9,Server,Core-Infra,Critical
+linapp0133,10.50.5.42,RHEL 9,Server,Core-Infra,Critical
+linapp0128,10.50.5.37,RHEL 9,Server,Core-Infra,Critical
+linapp0145,10.50.5.54,RHEL 9,Server,Core-Infra,Critical
+linapp0119,10.50.5.28,RHEL 9,Server,Core-Infra,Critical
+linapp0152,10.50.5.61,RHEL 9,Server,Core-Infra,Critical
+linapp0147,10.50.5.56,RHEL 9,Server,Core-Infra,Critical
+linapp0158,10.50.5.67,RHEL 9,Server,Core-Infra,Critical
+linapp0132,10.50.5.41,RHEL 9,Server,Core-Infra,Critical
+linapp0105,10.50.5.14,RHEL 9,Server,Core-Infra,Critical
+linapp0115,10.50.5.24,RHEL 9,Server,Core-Infra,Critical
+linapp0116,10.50.5.25,RHEL 9,Server,Core-Infra,Critical
+linapp0103,10.50.5.12,RHEL 9,Server,Core-Infra,Critical
+linapp0107,10.50.5.16,RHEL 9,Server,Core-Infra,Critical
+linsrv0315,10.50.8.55,RHEL 9,Server,Team-D,High
+linsrv0303,10.50.8.43,RHEL 9,Server,Team-D,High
+linsrv0353,10.50.8.93,RHEL 9,Server,Team-D,High
+linsrv0339,10.50.8.79,RHEL 9,Server,Team-D,High
+linsrv0309,10.50.8.49,RHEL 9,Server,Team-D,High
+linsrv0317,10.50.8.57,RHEL 9,Server,Team-D,High
+linsrv0359,10.50.8.99,RHEL 9,Server,Team-D,High
+linsrv0319,10.50.8.59,RHEL 9,Server,Team-D,High
+linsrv0357,10.50.8.97,RHEL 9,Server,Team-D,High
+linsrv0347,10.50.8.87,RHEL 9,Server,Team-D,High
+linsrv0311,10.50.8.51,RHEL 9,Server,Team-D,High
+linsrv0329,10.50.8.69,RHEL 9,Server,Team-D,High
+linsrv0305,10.50.8.45,RHEL 9,Server,Team-D,High
+linsrv0321,10.50.8.61,RHEL 9,Server,Team-D,High
+linsrv0355,10.50.8.95,RHEL 9,Server,Team-D,High
+linsrv0335,10.50.8.75,RHEL 9,Server,Team-D,High
+linsrv0345,10.50.8.85,RHEL 9,Server,Team-D,High
+linsrv0323,10.50.8.63,RHEL 9,Server,Team-D,High
+linsrv0327,10.50.8.67,RHEL 9,Server,Team-D,High
+linsrv0333,10.50.8.73,RHEL 9,Server,Team-D,High
+linsrv0343,10.50.8.83,RHEL 9,Server,Team-D,High
+linsrv0301,10.50.8.41,RHEL 9,Server,Team-D,High
+linsrv0325,10.50.8.65,RHEL 9,Server,Team-D,High
+linsrv0341,10.50.8.81,RHEL 9,Server,Team-D,High
+linsrv0351,10.50.8.91,RHEL 9,Server,Team-D,High
+linsrv0331,10.50.8.71,RHEL 9,Server,Team-D,High
+linsrv0337,10.50.8.77,RHEL 9,Server,Team-D,High
+linsrv0349,10.50.8.89,RHEL 9,Server,Team-D,High
+linsrv0307,10.50.8.47,RHEL 9,Server,Team-D,High
+linsrv0313,10.50.8.53,RHEL 9,Server,Team-D,High
+lindb0056,10.60.10.22,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0090,10.60.10.56,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0093,10.60.10.59,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0100,10.60.10.66,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0067,10.60.10.33,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0054,10.60.10.20,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0096,10.60.10.62,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0062,10.60.10.28,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0047,10.60.10.13,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0044,10.60.10.9,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0091,10.60.10.57,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0052,10.60.10.18,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0060,10.60.10.26,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0074,10.60.10.40,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0072,10.60.10.38,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0085,10.60.10.51,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0087,10.60.10.53,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0040,10.60.10.5,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0049,10.60.10.15,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0080,10.60.10.46,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0079,10.60.10.45,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0075,10.60.10.41,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0058,10.60.10.24,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0064,10.60.10.30,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0098,10.60.10.64,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0046,10.60.10.12,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0043,10.60.10.8,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0066,10.60.10.32,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0099,10.60.10.65,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0084,10.60.10.50,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0092,10.60.10.58,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0063,10.60.10.29,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0041,10.60.10.6,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0073,10.60.10.39,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0078,10.60.10.44,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0053,10.60.10.19,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0059,10.60.10.25,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0071,10.60.10.37,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0077,10.60.10.43,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0094,10.60.10.60,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0097,10.60.10.63,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0069,10.60.10.35,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0070,10.60.10.36,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0045,10.60.10.11,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0081,10.60.10.47,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0082,10.60.10.48,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0042,10.60.10.7,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0048,10.60.10.14,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0061,10.60.10.27,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0055,10.60.10.21,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0083,10.60.10.49,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0086,10.60.10.52,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0057,10.60.10.23,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0068,10.60.10.34,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0089,10.60.10.55,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0051,10.60.10.17,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0065,10.60.10.31,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0088,10.60.10.54,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0050,10.60.10.16,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0076,10.60.10.42,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+lindb0095,10.60.10.61,Ubuntu 22.04 LTS,Server,Data-Science,Critical
+linsrv0300,10.50.8.40,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0326,10.50.8.66,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0360,10.50.8.100,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0306,10.50.8.46,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0332,10.50.8.72,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0320,10.50.8.60,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0352,10.50.8.92,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0356,10.50.8.96,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0336,10.50.8.76,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0330,10.50.8.70,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0322,10.50.8.62,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0342,10.50.8.82,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0338,10.50.8.78,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0308,10.50.8.48,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0358,10.50.8.98,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0334,10.50.8.74,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0350,10.50.8.90,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0328,10.50.8.68,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0340,10.50.8.80,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0354,10.50.8.94,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0318,10.50.8.58,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0348,10.50.8.88,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0302,10.50.8.42,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0316,10.50.8.56,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0314,10.50.8.54,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0346,10.50.8.86,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0324,10.50.8.64,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0304,10.50.8.44,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0310,10.50.8.50,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0312,10.50.8.52,Ubuntu 22.04 LTS,Server,Team-D,High
+linsrv0344,10.50.8.84,Ubuntu 22.04 LTS,Server,Team-D,High
+winws0030,10.30.0.36,WINDOWS,Workstation,Team-A,High
+winws0012,10.12.0.50,WINDOWS,Workstation,Team-C,High
+winws0108,10.30.0.138,WINDOWS 10,Workstation,Team-A,Medium
+winws0119,10.30.0.160,WINDOWS 10,Workstation,Team-A,Medium
+winws0143,10.30.0.208,WINDOWS 10,Workstation,Team-A,Medium
+winws0092,10.30.0.94,WINDOWS 10,Workstation,Team-A,Medium
+winws0105,10.30.0.132,WINDOWS 10,Workstation,Team-A,Medium
+winws0091,10.30.0.92,WINDOWS 10,Workstation,Team-A,Medium
+winws0129,10.30.0.180,WINDOWS 10,Workstation,Team-A,Medium
+winws0107,10.30.0.136,WINDOWS 10,Workstation,Team-A,Medium
+winws0126,10.30.0.174,WINDOWS 10,Workstation,Team-A,Medium
+winws0125,10.30.0.172,WINDOWS 10,Workstation,Team-A,Medium
+winws0142,10.30.0.206,WINDOWS 10,Workstation,Team-A,Medium
+winws0102,10.30.0.126,WINDOWS 10,Workstation,Team-A,Medium
+winws0139,10.30.0.200,WINDOWS 10,Workstation,Team-A,Medium
+winws0097,10.30.0.116,WINDOWS 10,Workstation,Team-A,Medium
+winws0133,10.30.0.188,WINDOWS 10,Workstation,Team-A,Medium
+winws0123,10.30.0.168,WINDOWS 10,Workstation,Team-A,Medium
+winws0100,10.30.0.122,WINDOWS 10,Workstation,Team-A,Medium
+winws0104,10.30.0.130,WINDOWS 10,Workstation,Team-A,Medium
+winws0120,10.30.0.162,WINDOWS 10,Workstation,Team-A,Medium
+winws0116,10.30.0.154,WINDOWS 10,Workstation,Team-A,Medium
+winws0121,10.30.0.164,WINDOWS 10,Workstation,Team-A,Medium
+winws0127,10.30.0.176,WINDOWS 10,Workstation,Team-A,Medium
+winws0110,10.30.0.142,WINDOWS 10,Workstation,Team-A,Medium
+winws0147,10.30.0.216,WINDOWS 10,Workstation,Team-A,Medium
+winws0098,10.30.0.118,WINDOWS 10,Workstation,Team-A,Medium
+winws0090,10.30.0.90,WINDOWS 10,Workstation,Team-A,Medium
+winws0114,10.30.0.150,WINDOWS 10,Workstation,Team-A,Medium
+winws0141,10.30.0.204,WINDOWS 10,Workstation,Team-A,Medium
+winws0109,10.30.0.140,WINDOWS 10,Workstation,Team-A,Medium
+winws0149,10.30.0.220,WINDOWS 10,Workstation,Team-A,Medium
+winws0144,10.30.0.210,WINDOWS 10,Workstation,Team-A,Medium
+winws0130,10.30.0.182,WINDOWS 10,Workstation,Team-A,Medium
+winws0146,10.30.0.214,WINDOWS 10,Workstation,Team-A,Medium
+winws0117,10.30.0.156,WINDOWS 10,Workstation,Team-A,Medium
+winws0103,10.30.0.128,WINDOWS 10,Workstation,Team-A,Medium
+winws0131,10.30.0.184,WINDOWS 10,Workstation,Team-A,Medium
+winws0115,10.30.0.152,WINDOWS 10,Workstation,Team-A,Medium
+winws0111,10.30.0.144,WINDOWS 10,Workstation,Team-A,Medium
+winws0136,10.30.0.194,WINDOWS 10,Workstation,Team-A,Medium
+winws0145,10.30.0.212,WINDOWS 10,Workstation,Team-A,Medium
+winws0140,10.30.0.202,WINDOWS 10,Workstation,Team-A,Medium
+winws0135,10.30.0.192,WINDOWS 10,Workstation,Team-A,Medium
+winws0148,10.30.0.218,WINDOWS 10,Workstation,Team-A,Medium
+winws0094,10.30.0.98,WINDOWS 10,Workstation,Team-A,Medium
+winws0124,10.30.0.170,WINDOWS 10,Workstation,Team-A,Medium
+winws0122,10.30.0.166,WINDOWS 10,Workstation,Team-A,Medium
+winws0138,10.30.0.198,WINDOWS 10,Workstation,Team-A,Medium
+winws0137,10.30.0.196,WINDOWS 10,Workstation,Team-A,Medium
+winws0112,10.30.0.146,WINDOWS 10,Workstation,Team-A,Medium
+winws0113,10.30.0.148,WINDOWS 10,Workstation,Team-A,Medium
+winws0118,10.30.0.158,WINDOWS 10,Workstation,Team-A,Medium
+winws0128,10.30.0.178,WINDOWS 10,Workstation,Team-A,Medium
+winws0132,10.30.0.186,WINDOWS 10,Workstation,Team-A,Medium
+winws0106,10.30.0.134,WINDOWS 10,Workstation,Team-A,Medium
+winws0134,10.30.0.190,WINDOWS 10,Workstation,Team-A,Medium
+winws0095,10.30.0.100,WINDOWS 10,Workstation,Team-A,Medium
+winws0096,10.30.0.114,WINDOWS 10,Workstation,Team-A,Medium
+winws0101,10.30.0.124,WINDOWS 10,Workstation,Team-A,Medium
+winws0093,10.30.0.96,WINDOWS 10,Workstation,Team-A,Medium
+winws0099,10.30.0.120,WINDOWS 10,Workstation,Team-A,Medium
+winws0089,10.12.0.102,WINDOWS 10,Workstation,Team-C,Medium
+winws0193,10.15.0.63,WINDOWS 11,Workstation,Finance-Systems,High
+winws0179,10.15.0.49,WINDOWS 11,Workstation,Finance-Systems,High
+winws0185,10.15.0.55,WINDOWS 11,Workstation,Finance-Systems,High
+winws0150,10.15.0.20,WINDOWS 11,Workstation,Finance-Systems,High
+winws0163,10.15.0.33,WINDOWS 11,Workstation,Finance-Systems,High
+winws0209,10.15.0.79,WINDOWS 11,Workstation,Finance-Systems,High
+winws0236,10.15.0.107,WINDOWS 11,Workstation,Finance-Systems,High
+winws0250,10.15.0.121,WINDOWS 11,Workstation,Finance-Systems,High
+winws0256,10.15.0.127,WINDOWS 11,Workstation,Finance-Systems,High
+winws0197,10.15.0.67,WINDOWS 11,Workstation,Finance-Systems,High
+winws0212,10.15.0.83,WINDOWS 11,Workstation,Finance-Systems,High
+winws0246,10.15.0.117,WINDOWS 11,Workstation,Finance-Systems,High
+winws0199,10.15.0.69,WINDOWS 11,Workstation,Finance-Systems,High
+winws0228,10.15.0.99,WINDOWS 11,Workstation,Finance-Systems,High
+winws0258,10.15.0.129,WINDOWS 11,Workstation,Finance-Systems,High
+winws0268,10.15.0.139,WINDOWS 11,Workstation,Finance-Systems,High
+winws0220,10.15.0.91,WINDOWS 11,Workstation,Finance-Systems,High
+winws0232,10.15.0.103,WINDOWS 11,Workstation,Finance-Systems,High
+winws0161,10.15.0.31,WINDOWS 11,Workstation,Finance-Systems,High
+winws0177,10.15.0.47,WINDOWS 11,Workstation,Finance-Systems,High
+winws0260,10.15.0.131,WINDOWS 11,Workstation,Finance-Systems,High
+winws0203,10.15.0.73,WINDOWS 11,Workstation,Finance-Systems,High
+winws0207,10.15.0.77,WINDOWS 11,Workstation,Finance-Systems,High
+winws0234,10.15.0.105,WINDOWS 11,Workstation,Finance-Systems,High
+winws0157,10.15.0.27,WINDOWS 11,Workstation,Finance-Systems,High
+winws0183,10.15.0.53,WINDOWS 11,Workstation,Finance-Systems,High
+winws0167,10.15.0.37,WINDOWS 11,Workstation,Finance-Systems,High
+winws0171,10.15.0.41,WINDOWS 11,Workstation,Finance-Systems,High
+winws0187,10.15.0.57,WINDOWS 11,Workstation,Finance-Systems,High
+winws0242,10.15.0.113,WINDOWS 11,Workstation,Finance-Systems,High
+winws0252,10.15.0.123,WINDOWS 11,Workstation,Finance-Systems,High
+winws0230,10.15.0.101,WINDOWS 11,Workstation,Finance-Systems,High
+winws0262,10.15.0.133,WINDOWS 11,Workstation,Finance-Systems,High
+winws0238,10.15.0.109,WINDOWS 11,Workstation,Finance-Systems,High
+winws0214,10.15.0.85,WINDOWS 11,Workstation,Finance-Systems,High
+winws0210,10.15.0.81,WINDOWS 11,Workstation,Finance-Systems,High
+winws0155,10.15.0.25,WINDOWS 11,Workstation,Finance-Systems,High
+winws0240,10.15.0.111,WINDOWS 11,Workstation,Finance-Systems,High
+winws0201,10.15.0.71,WINDOWS 11,Workstation,Finance-Systems,High
+winws0216,10.15.0.87,WINDOWS 11,Workstation,Finance-Systems,High
+winws0224,10.15.0.95,WINDOWS 11,Workstation,Finance-Systems,High
+winws0226,10.15.0.97,WINDOWS 11,Workstation,Finance-Systems,High
+winws0244,10.15.0.115,WINDOWS 11,Workstation,Finance-Systems,High
+winws0266,10.15.0.137,WINDOWS 11,Workstation,Finance-Systems,High
+winws0254,10.15.0.125,WINDOWS 11,Workstation,Finance-Systems,High
+winws0175,10.15.0.45,WINDOWS 11,Workstation,Finance-Systems,High
+winws0205,10.15.0.75,WINDOWS 11,Workstation,Finance-Systems,High
+winws0151,10.15.0.21,WINDOWS 11,Workstation,Finance-Systems,High
+winws0181,10.15.0.51,WINDOWS 11,Workstation,Finance-Systems,High
+winws0153,10.15.0.23,WINDOWS 11,Workstation,Finance-Systems,High
+winws0191,10.15.0.61,WINDOWS 11,Workstation,Finance-Systems,High
+winws0222,10.15.0.93,WINDOWS 11,Workstation,Finance-Systems,High
+winws0218,10.15.0.89,WINDOWS 11,Workstation,Finance-Systems,High
+winws0159,10.15.0.29,WINDOWS 11,Workstation,Finance-Systems,High
+winws0165,10.15.0.35,WINDOWS 11,Workstation,Finance-Systems,High
+winws0173,10.15.0.43,WINDOWS 11,Workstation,Finance-Systems,High
+winws0189,10.15.0.59,WINDOWS 11,Workstation,Finance-Systems,High
+winws0264,10.15.0.135,WINDOWS 11,Workstation,Finance-Systems,High
+winws0248,10.15.0.119,WINDOWS 11,Workstation,Finance-Systems,High
+winws0169,10.15.0.39,WINDOWS 11,Workstation,Finance-Systems,High
+winws0195,10.15.0.65,WINDOWS 11,Workstation,Finance-Systems,High
+winws0219,10.15.0.90,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0229,10.15.0.100,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0265,10.15.0.136,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0217,10.15.0.88,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0259,10.15.0.130,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0164,10.15.0.34,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0180,10.15.0.50,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0227,10.15.0.98,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0247,10.15.0.118,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0156,10.15.0.26,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0221,10.15.0.92,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0225,10.15.0.96,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0243,10.15.0.114,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0170,10.15.0.40,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0206,10.15.0.76,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0231,10.15.0.102,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0255,10.15.0.126,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0188,10.15.0.58,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0202,10.15.0.72,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0192,10.15.0.62,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0269,10.15.0.140,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0172,10.15.0.42,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0194,10.15.0.64,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0182,10.15.0.52,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0174,10.15.0.44,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0154,10.15.0.24,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0245,10.15.0.116,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0257,10.15.0.128,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0152,10.15.0.22,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0200,10.15.0.70,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0237,10.15.0.108,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0249,10.15.0.120,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0166,10.15.0.36,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0211,10.15.0.82,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0168,10.15.0.38,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0204,10.15.0.74,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0160,10.15.0.30,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0178,10.15.0.48,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0223,10.15.0.94,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0251,10.15.0.122,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0209,10.15.0.80,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0186,10.15.0.56,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0261,10.15.0.132,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0263,10.15.0.134,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0190,10.15.0.60,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0196,10.15.0.66,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0253,10.15.0.124,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0213,10.15.0.84,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0235,10.15.0.106,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0158,10.15.0.28,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0267,10.15.0.138,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0162,10.15.0.32,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0233,10.15.0.104,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0239,10.15.0.110,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0241,10.15.0.112,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0184,10.15.0.54,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0215,10.15.0.86,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0176,10.15.0.46,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0208,10.15.0.78,WINDOWS 11,Workstation,HR-Platform,Medium
+winws0198,10.15.0.68,WINDOWS 11,Workstation,HR-Platform,Medium
+winws1091,10.30.0.189,WINDOWS 11,Workstation,Team-A,Medium
+winws1063,10.30.0.133,WINDOWS 11,Workstation,Team-A,Medium
+winws1064,10.30.0.135,WINDOWS 11,Workstation,Team-A,Medium
+winws1100,10.30.0.207,WINDOWS 11,Workstation,Team-A,Medium
+winws1052,10.30.0.99,WINDOWS 11,Workstation,Team-A,Medium
+winws1086,10.30.0.179,WINDOWS 11,Workstation,Team-A,Medium
+winws1048,10.30.0.91,WINDOWS 11,Workstation,Team-A,Medium
+winws1051,10.30.0.97,WINDOWS 11,Workstation,Team-A,Medium
+winws1076,10.30.0.159,WINDOWS 11,Workstation,Team-A,Medium
+winws1049,10.30.0.93,WINDOWS 11,Workstation,Team-A,Medium
+winws1072,10.30.0.151,WINDOWS 11,Workstation,Team-A,Medium
+winws1047,10.30.0.89,WINDOWS 11,Workstation,Team-A,Medium
+winws1088,10.30.0.183,WINDOWS 11,Workstation,Team-A,Medium
+winws1093,10.30.0.193,WINDOWS 11,Workstation,Team-A,Medium
+winws1084,10.30.0.175,WINDOWS 11,Workstation,Team-A,Medium
+winws1080,10.30.0.167,WINDOWS 11,Workstation,Team-A,Medium
+winws1078,10.30.0.163,WINDOWS 11,Workstation,Team-A,Medium
+winws1081,10.30.0.169,WINDOWS 11,Workstation,Team-A,Medium
+winws1095,10.30.0.197,WINDOWS 11,Workstation,Team-A,Medium
+winws1074,10.30.0.155,WINDOWS 11,Workstation,Team-A,Medium
+winws1054,10.30.0.115,WINDOWS 11,Workstation,Team-A,Medium
+winws1092,10.30.0.191,WINDOWS 11,Workstation,Team-A,Medium
+winws1056,10.30.0.119,WINDOWS 11,Workstation,Team-A,Medium
+winws1103,10.30.0.213,WINDOWS 11,Workstation,Team-A,Medium
+winws1046,10.30.0.88,WINDOWS 11,Workstation,Team-A,Medium
+winws1053,10.30.0.113,WINDOWS 11,Workstation,Team-A,Medium
+winws1102,10.30.0.211,WINDOWS 11,Workstation,Team-A,Medium
+winws1106,10.30.0.219,WINDOWS 11,Workstation,Team-A,Medium
+winws1058,10.30.0.123,WINDOWS 11,Workstation,Team-A,Medium
+winws1090,10.30.0.187,WINDOWS 11,Workstation,Team-A,Medium
+winws1099,10.30.0.205,WINDOWS 11,Workstation,Team-A,Medium
+winws1055,10.30.0.117,WINDOWS 11,Workstation,Team-A,Medium
+winws1060,10.30.0.127,WINDOWS 11,Workstation,Team-A,Medium
+winws1068,10.30.0.143,WINDOWS 11,Workstation,Team-A,Medium
+winws1096,10.30.0.199,WINDOWS 11,Workstation,Team-A,Medium
+winws1057,10.30.0.121,WINDOWS 11,Workstation,Team-A,Medium
+winws1104,10.30.0.215,WINDOWS 11,Workstation,Team-A,Medium
+winws1062,10.30.0.131,WINDOWS 11,Workstation,Team-A,Medium
+winws1094,10.30.0.195,WINDOWS 11,Workstation,Team-A,Medium
+winws1059,10.30.0.125,WINDOWS 11,Workstation,Team-A,Medium
+winws1069,10.30.0.145,WINDOWS 11,Workstation,Team-A,Medium
+winws1061,10.30.0.129,WINDOWS 11,Workstation,Team-A,Medium
+winws1077,10.30.0.161,WINDOWS 11,Workstation,Team-A,Medium
+winws1067,10.30.0.141,WINDOWS 11,Workstation,Team-A,Medium
+winws1070,10.30.0.147,WINDOWS 11,Workstation,Team-A,Medium
+winws1075,10.30.0.157,WINDOWS 11,Workstation,Team-A,Medium
+winws1085,10.30.0.177,WINDOWS 11,Workstation,Team-A,Medium
+winws1098,10.30.0.203,WINDOWS 11,Workstation,Team-A,Medium
+winws1105,10.30.0.217,WINDOWS 11,Workstation,Team-A,Medium
+winws1087,10.30.0.181,WINDOWS 11,Workstation,Team-A,Medium
+winws1082,10.30.0.171,WINDOWS 11,Workstation,Team-A,Medium
+winws1083,10.30.0.173,WINDOWS 11,Workstation,Team-A,Medium
+winws1073,10.30.0.153,WINDOWS 11,Workstation,Team-A,Medium
+winws1101,10.30.0.209,WINDOWS 11,Workstation,Team-A,Medium
+winws1050,10.30.0.95,WINDOWS 11,Workstation,Team-A,Medium
+winws1079,10.30.0.165,WINDOWS 11,Workstation,Team-A,Medium
+winws1071,10.30.0.149,WINDOWS 11,Workstation,Team-A,Medium
+winws1089,10.30.0.185,WINDOWS 11,Workstation,Team-A,Medium
+winws1065,10.30.0.137,WINDOWS 11,Workstation,Team-A,Medium
+winws1066,10.30.0.139,WINDOWS 11,Workstation,Team-A,Medium
+winws1097,10.30.0.201,WINDOWS 11,Workstation,Team-A,Medium
+winws1209,10.12.0.111,WINDOWS 11,Workstation,Team-C,Medium
+winws1221,10.12.0.123,WINDOWS 11,Workstation,Team-C,Medium
+winws1237,10.12.0.139,WINDOWS 11,Workstation,Team-C,Medium
+winws1227,10.12.0.129,WINDOWS 11,Workstation,Team-C,Medium
+winws1235,10.12.0.137,WINDOWS 11,Workstation,Team-C,Medium
+winws1255,10.12.0.157,WINDOWS 11,Workstation,Team-C,Medium
+winws1240,10.12.0.142,WINDOWS 11,Workstation,Team-C,Medium
+winws1254,10.12.0.156,WINDOWS 11,Workstation,Team-C,Medium
+winws1248,10.12.0.150,WINDOWS 11,Workstation,Team-C,Medium
+winws1293,10.12.0.195,WINDOWS 11,Workstation,Team-C,Medium
+winws1218,10.12.0.120,WINDOWS 11,Workstation,Team-C,Medium
+winws1286,10.12.0.188,WINDOWS 11,Workstation,Team-C,Medium
+winws1216,10.12.0.118,WINDOWS 11,Workstation,Team-C,Medium
+winws1308,10.12.0.210,WINDOWS 11,Workstation,Team-C,Medium
+winws1313,10.12.0.215,WINDOWS 11,Workstation,Team-C,Medium
+winws1292,10.12.0.194,WINDOWS 11,Workstation,Team-C,Medium
+winws1262,10.12.0.164,WINDOWS 11,Workstation,Team-C,Medium
+winws1273,10.12.0.175,WINDOWS 11,Workstation,Team-C,Medium
+winws1217,10.12.0.119,WINDOWS 11,Workstation,Team-C,Medium
+winws1222,10.12.0.124,WINDOWS 11,Workstation,Team-C,Medium
+winws1288,10.12.0.190,WINDOWS 11,Workstation,Team-C,Medium
+winws1309,10.12.0.211,WINDOWS 11,Workstation,Team-C,Medium
+winws1203,10.12.0.105,WINDOWS 11,Workstation,Team-C,Medium
+winws1251,10.12.0.153,WINDOWS 11,Workstation,Team-C,Medium
+winws1302,10.12.0.204,WINDOWS 11,Workstation,Team-C,Medium
+winws1261,10.12.0.163,WINDOWS 11,Workstation,Team-C,Medium
+winws1297,10.12.0.199,WINDOWS 11,Workstation,Team-C,Medium
+winws1305,10.12.0.207,WINDOWS 11,Workstation,Team-C,Medium
+winws1207,10.12.0.109,WINDOWS 11,Workstation,Team-C,Medium
+winws1279,10.12.0.181,WINDOWS 11,Workstation,Team-C,Medium
+winws1283,10.12.0.185,WINDOWS 11,Workstation,Team-C,Medium
+winws1300,10.12.0.202,WINDOWS 11,Workstation,Team-C,Medium
+winws1312,10.12.0.214,WINDOWS 11,Workstation,Team-C,Medium
+winws1316,10.12.0.218,WINDOWS 11,Workstation,Team-C,Medium
+winws1208,10.12.0.110,WINDOWS 11,Workstation,Team-C,Medium
+winws1247,10.12.0.149,WINDOWS 11,Workstation,Team-C,Medium
+winws1244,10.12.0.146,WINDOWS 11,Workstation,Team-C,Medium
+winws1287,10.12.0.189,WINDOWS 11,Workstation,Team-C,Medium
+winws1260,10.12.0.162,WINDOWS 11,Workstation,Team-C,Medium
+winws1299,10.12.0.201,WINDOWS 11,Workstation,Team-C,Medium
+winws1234,10.12.0.136,WINDOWS 11,Workstation,Team-C,Medium
+winws1265,10.12.0.167,WINDOWS 11,Workstation,Team-C,Medium
+winws1282,10.12.0.184,WINDOWS 11,Workstation,Team-C,Medium
+winws1318,10.12.0.220,WINDOWS 11,Workstation,Team-C,Medium
+winws1210,10.12.0.112,WINDOWS 11,Workstation,Team-C,Medium
+winws1303,10.12.0.205,WINDOWS 11,Workstation,Team-C,Medium
+winws1225,10.12.0.127,WINDOWS 11,Workstation,Team-C,Medium
+winws1201,10.12.0.103,WINDOWS 11,Workstation,Team-C,Medium
+winws1243,10.12.0.145,WINDOWS 11,Workstation,Team-C,Medium
+winws1263,10.12.0.165,WINDOWS 11,Workstation,Team-C,Medium
+winws1242,10.12.0.144,WINDOWS 11,Workstation,Team-C,Medium
+winws1284,10.12.0.186,WINDOWS 11,Workstation,Team-C,Medium
+winws1253,10.12.0.155,WINDOWS 11,Workstation,Team-C,Medium
+winws1280,10.12.0.182,WINDOWS 11,Workstation,Team-C,Medium
+winws1211,10.12.0.113,WINDOWS 11,Workstation,Team-C,Medium
+winws1215,10.12.0.117,WINDOWS 11,Workstation,Team-C,Medium
+winws1223,10.12.0.125,WINDOWS 11,Workstation,Team-C,Medium
+winws1257,10.12.0.159,WINDOWS 11,Workstation,Team-C,Medium
+winws1268,10.12.0.170,WINDOWS 11,Workstation,Team-C,Medium
+winws1228,10.12.0.130,WINDOWS 11,Workstation,Team-C,Medium
+winws1277,10.12.0.179,WINDOWS 11,Workstation,Team-C,Medium
+winws1298,10.12.0.200,WINDOWS 11,Workstation,Team-C,Medium
+winws1232,10.12.0.134,WINDOWS 11,Workstation,Team-C,Medium
+winws1269,10.12.0.171,WINDOWS 11,Workstation,Team-C,Medium
+winws1229,10.12.0.131,WINDOWS 11,Workstation,Team-C,Medium
+winws1289,10.12.0.191,WINDOWS 11,Workstation,Team-C,Medium
+winws1306,10.12.0.208,WINDOWS 11,Workstation,Team-C,Medium
+winws1204,10.12.0.106,WINDOWS 11,Workstation,Team-C,Medium
+winws1256,10.12.0.158,WINDOWS 11,Workstation,Team-C,Medium
+winws1319,10.12.0.221,WINDOWS 11,Workstation,Team-C,Medium
+winws1315,10.12.0.217,WINDOWS 11,Workstation,Team-C,Medium
+winws1294,10.12.0.196,WINDOWS 11,Workstation,Team-C,Medium
+winws1230,10.12.0.132,WINDOWS 11,Workstation,Team-C,Medium
+winws1281,10.12.0.183,WINDOWS 11,Workstation,Team-C,Medium
+winws1278,10.12.0.180,WINDOWS 11,Workstation,Team-C,Medium
+winws1214,10.12.0.116,WINDOWS 11,Workstation,Team-C,Medium
+winws1246,10.12.0.148,WINDOWS 11,Workstation,Team-C,Medium
+winws1205,10.12.0.107,WINDOWS 11,Workstation,Team-C,Medium
+winws1220,10.12.0.122,WINDOWS 11,Workstation,Team-C,Medium
+winws1267,10.12.0.169,WINDOWS 11,Workstation,Team-C,Medium
+winws1274,10.12.0.176,WINDOWS 11,Workstation,Team-C,Medium
+winws1250,10.12.0.152,WINDOWS 11,Workstation,Team-C,Medium
+winws1272,10.12.0.174,WINDOWS 11,Workstation,Team-C,Medium
+winws1301,10.12.0.203,WINDOWS 11,Workstation,Team-C,Medium
+winws1231,10.12.0.133,WINDOWS 11,Workstation,Team-C,Medium
+winws1045,10.12.0.101,WINDOWS 11,Workstation,Team-C,Medium
+winws1213,10.12.0.115,WINDOWS 11,Workstation,Team-C,Medium
+winws1226,10.12.0.128,WINDOWS 11,Workstation,Team-C,Medium
+winws1258,10.12.0.160,WINDOWS 11,Workstation,Team-C,Medium
+winws1285,10.12.0.187,WINDOWS 11,Workstation,Team-C,Medium
+winws1314,10.12.0.216,WINDOWS 11,Workstation,Team-C,Medium
+winws1317,10.12.0.219,WINDOWS 11,Workstation,Team-C,Medium
+winws1212,10.12.0.114,WINDOWS 11,Workstation,Team-C,Medium
+winws1307,10.12.0.209,WINDOWS 11,Workstation,Team-C,Medium
+winws1259,10.12.0.161,WINDOWS 11,Workstation,Team-C,Medium
+winws1271,10.12.0.173,WINDOWS 11,Workstation,Team-C,Medium
+winws1291,10.12.0.193,WINDOWS 11,Workstation,Team-C,Medium
+winws1311,10.12.0.213,WINDOWS 11,Workstation,Team-C,Medium
+winws1238,10.12.0.140,WINDOWS 11,Workstation,Team-C,Medium
+winws1290,10.12.0.192,WINDOWS 11,Workstation,Team-C,Medium
+winws1219,10.12.0.121,WINDOWS 11,Workstation,Team-C,Medium
+winws1239,10.12.0.141,WINDOWS 11,Workstation,Team-C,Medium
+winws1241,10.12.0.143,WINDOWS 11,Workstation,Team-C,Medium
+winws1304,10.12.0.206,WINDOWS 11,Workstation,Team-C,Medium
+winws1202,10.12.0.104,WINDOWS 11,Workstation,Team-C,Medium
+winws1245,10.12.0.147,WINDOWS 11,Workstation,Team-C,Medium
+winws1252,10.12.0.154,WINDOWS 11,Workstation,Team-C,Medium
+winws1224,10.12.0.126,WINDOWS 11,Workstation,Team-C,Medium
+winws1206,10.12.0.108,WINDOWS 11,Workstation,Team-C,Medium
+winws1233,10.12.0.135,WINDOWS 11,Workstation,Team-C,Medium
+winws1249,10.12.0.151,WINDOWS 11,Workstation,Team-C,Medium
+winws1275,10.12.0.177,WINDOWS 11,Workstation,Team-C,Medium
+winws1276,10.12.0.178,WINDOWS 11,Workstation,Team-C,Medium
+winws1264,10.12.0.166,WINDOWS 11,Workstation,Team-C,Medium
+winws1270,10.12.0.172,WINDOWS 11,Workstation,Team-C,Medium
+winws1295,10.12.0.197,WINDOWS 11,Workstation,Team-C,Medium
+winws1296,10.12.0.198,WINDOWS 11,Workstation,Team-C,Medium
+winws1310,10.12.0.212,WINDOWS 11,Workstation,Team-C,Medium
+winws1236,10.12.0.138,WINDOWS 11,Workstation,Team-C,Medium
+winws1266,10.12.0.168,WINDOWS 11,Workstation,Team-C,Medium
+winsrv0257,10.20.3.52,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0261,10.20.3.56,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0265,10.20.3.60,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0267,10.20.3.62,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0231,10.20.3.26,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0235,10.20.3.30,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0275,10.20.3.70,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0245,10.20.3.40,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0253,10.20.3.48,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0221,10.20.3.16,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0263,10.20.3.58,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0243,10.20.3.38,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0251,10.20.3.46,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0259,10.20.3.54,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0223,10.20.3.18,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0269,10.20.3.64,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0237,10.20.3.32,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0255,10.20.3.50,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0279,10.20.3.74,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0233,10.20.3.28,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0241,10.20.3.36,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0249,10.20.3.44,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0229,10.20.3.24,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0271,10.20.3.66,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0225,10.20.3.20,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0227,10.20.3.22,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0247,10.20.3.42,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0273,10.20.3.68,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0239,10.20.3.34,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0277,10.20.3.72,WINDOWS Server 2019,Server,Team-B,Medium
+winsrv0244,10.20.3.39,WINDOWS Server 2022,Server,Team-B,High
+winsrv0272,10.20.3.67,WINDOWS Server 2022,Server,Team-B,High
+winsrv0256,10.20.3.51,WINDOWS Server 2022,Server,Team-B,High
+winsrv0242,10.20.3.37,WINDOWS Server 2022,Server,Team-B,High
+winsrv0270,10.20.3.65,WINDOWS Server 2022,Server,Team-B,High
+winsrv0238,10.20.3.33,WINDOWS Server 2022,Server,Team-B,High
+winsrv0274,10.20.3.69,WINDOWS Server 2022,Server,Team-B,High
+winsrv0280,10.20.3.75,WINDOWS Server 2022,Server,Team-B,High
+winsrv0230,10.20.3.25,WINDOWS Server 2022,Server,Team-B,High
+winsrv0236,10.20.3.31,WINDOWS Server 2022,Server,Team-B,High
+winsrv0232,10.20.3.27,WINDOWS Server 2022,Server,Team-B,High
+winsrv0254,10.20.3.49,WINDOWS Server 2022,Server,Team-B,High
+winsrv0240,10.20.3.35,WINDOWS Server 2022,Server,Team-B,High
+winsrv0258,10.20.3.53,WINDOWS Server 2022,Server,Team-B,High
+winsrv0260,10.20.3.55,WINDOWS Server 2022,Server,Team-B,High
+winsrv0264,10.20.3.59,WINDOWS Server 2022,Server,Team-B,High
+winsrv0220,10.20.3.15,WINDOWS Server 2022,Server,Team-B,High
+winsrv0278,10.20.3.73,WINDOWS Server 2022,Server,Team-B,High
+winsrv0262,10.20.3.57,WINDOWS Server 2022,Server,Team-B,High
+winsrv0250,10.20.3.45,WINDOWS Server 2022,Server,Team-B,High
+winsrv0234,10.20.3.29,WINDOWS Server 2022,Server,Team-B,High
+winsrv0266,10.20.3.61,WINDOWS Server 2022,Server,Team-B,High
+winsrv0226,10.20.3.21,WINDOWS Server 2022,Server,Team-B,High
+winsrv0224,10.20.3.19,WINDOWS Server 2022,Server,Team-B,High
+winsrv0276,10.20.3.71,WINDOWS Server 2022,Server,Team-B,High
+winsrv0222,10.20.3.17,WINDOWS Server 2022,Server,Team-B,High
+winsrv0252,10.20.3.47,WINDOWS Server 2022,Server,Team-B,High
+winsrv0246,10.20.3.41,WINDOWS Server 2022,Server,Team-B,High
+winsrv0228,10.20.3.23,WINDOWS Server 2022,Server,Team-B,High
+winsrv0268,10.20.3.63,WINDOWS Server 2022,Server,Team-B,High
+winsrv0248,10.20.3.43,WINDOWS Server 2022,Server,Team-B,High
