@@ -63,11 +63,11 @@ public final class FirestoreRunner {
       FirestoreDatabaseRunner runner = new FirestoreDatabaseRunner(timeAgent, APP_NAME, firestore);
       FirestoreSessionService sessionService = new FirestoreSessionService(firestore);
 
-      String userId = System.getenv("USER_ID");
-      String sessionId = System.getenv("SESSION_ID");
+      String userId = normalizeId(System.getenv("USER_ID"));
+      String sessionId = normalizeId(System.getenv("SESSION_ID"));
 
       Session session;
-      if (isValidId(userId) && isValidId(sessionId)) {
+      if (userId != null && sessionId != null) {
         String resumeUserId = userId;
         String resumeSessionId = sessionId;
         session =
@@ -81,7 +81,7 @@ public final class FirestoreRunner {
                                 .toMaybe()
                             : Maybe.error(error))
                 .blockingGet();
-        logger.info("Resumed session " + sessionId + " for user " + userId);
+        logger.info("Resumed session " + resumeSessionId + " for user " + resumeUserId);
       } else {
         userId = "user-" + UUID.randomUUID();
         sessionId = "session-" + UUID.randomUUID();
@@ -127,15 +127,19 @@ public final class FirestoreRunner {
     System.exit(0);
   }
 
-  static boolean isValidId(String id) {
+  static String normalizeId(String id) {
     if (id == null || id.isBlank()) {
-      return false;
+      return null;
     }
     String trimmed = id.trim();
     if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2) {
       trimmed = trimmed.substring(1, trimmed.length() - 1).trim();
     }
-    return !trimmed.isBlank() && !trimmed.startsWith("<TODO");
+    return (!trimmed.isBlank() && !trimmed.startsWith("<TODO")) ? trimmed : null;
+  }
+
+  static boolean isValidId(String id) {
+    return normalizeId(id) != null;
   }
 
   @Schema(description = "Get the current time for a given city")

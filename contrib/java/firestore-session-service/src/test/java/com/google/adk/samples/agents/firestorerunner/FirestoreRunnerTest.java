@@ -18,6 +18,7 @@ package com.google.adk.samples.agents.firestorerunner;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.adk.agents.BaseAgent;
@@ -66,5 +67,18 @@ public class FirestoreRunnerTest {
     assertFalse(FirestoreRunner.isValidId("   "));
     assertFalse(FirestoreRunner.isValidId("<TODO: update-this-value>"));
     assertFalse(FirestoreRunner.isValidId("\"<TODO: update-this-value>\""));
+  }
+
+  @Test
+  void testNormalizeId() {
+    assertEquals("valid-id", FirestoreRunner.normalizeId("valid-id"));
+    assertEquals("valid-id", FirestoreRunner.normalizeId("  valid-id  "));
+    assertEquals("valid-id", FirestoreRunner.normalizeId("\"valid-id\""));
+    assertEquals("valid-id", FirestoreRunner.normalizeId(" \"valid-id\" "));
+    assertNull(FirestoreRunner.normalizeId(null));
+    assertNull(FirestoreRunner.normalizeId(""));
+    assertNull(FirestoreRunner.normalizeId("   "));
+    assertNull(FirestoreRunner.normalizeId("<TODO: update-this-value>"));
+    assertNull(FirestoreRunner.normalizeId("\"<TODO: update-this-value>\""));
   }
 }
