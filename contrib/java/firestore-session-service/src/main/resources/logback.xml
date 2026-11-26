@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+ Copyright 2026 Google LLC
+
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+-->
+<configuration>
+    <!-- Define an appender to output logs to the console -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <!-- Define the log pattern to match your existing format -->
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Set the logging level for a specific package or class -->
+    <!-- You can change INFO to DEBUG, TRACE, WARN, ERROR, or OFF -->
+    <logger name="com.google.adk.sessions.FirestoreSessionService" level="WARN" />
+
+    <!-- You can also set it for the entire package if you want -->
+    <!-- <logger name="com.google.adk.sessions" level="DEBUG"/> -->
+
+    <!-- Root logger configuration -->
+    <!-- This sets the default level for all other loggers -->
+    <root level="INFO">
+        <appender-ref ref="STDOUT" />
+    </root>
+
+</configuration>
