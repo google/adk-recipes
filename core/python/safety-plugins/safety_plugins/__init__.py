@@ -23,13 +23,10 @@ load_dotenv()
 
 try:
     _, project_id = google.auth.default()
-    if project_id:
-        os.environ.setdefault("GOOGLE_CLOUD_PROJECT", project_id)
+    if project_id and "GOOGLE_CLOUD_PROJECT" not in os.environ:
+        os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
 except google.auth.exceptions.DefaultCredentialsError:
     pass
-
-os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
-os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
 
 from . import agent  # noqa: E402 -- must come after load_dotenv()
 from .agent import root_agent  # noqa: E402 -- must come after load_dotenv()
